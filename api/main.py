@@ -21,15 +21,20 @@ def health():
     return {"message": "api is working"}
 
 
-@app.post("/create")
+@app.post("/make")
 async def make(request: Request):
-    data = await request.json()
-    message = data.get("message")
+    try:
+        data = await request.json()
+        message = data.get("message")
 
-    if message:
-        return JSONResponse(content={"response": f"Yes, message received: '{message}'"})
-    else:
-        return JSONResponse(
-            content={"response": "Message received, but no 'message' field found"},
-            status_code=400,
-        )
+        if message:
+            return JSONResponse(
+                content={"response": f"Yes, message received: '{message}'"}
+            )
+        else:
+            return JSONResponse(
+                content={"response": "Message received, but no 'message' field found"},
+                status_code=400,
+            )
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
