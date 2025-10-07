@@ -23,7 +23,7 @@ app.post("/make", async (req: Request, res: Response) => {
         details: parsed.issues
       });
     }
-    console.log("SECRET_KEY:", process.env.SECRET_KEY ? "Loaded ✅" : "Missing ❌");
+    console.log("SECRET_KEY:", process.env.SECRET_KEY ? process.env.SECRET_KEY : "Missing ❌");
 
 
     const data = parsed.output;
@@ -34,7 +34,7 @@ app.post("/make", async (req: Request, res: Response) => {
       return res.status(500).json({ error: "Server secret not configured (process.env.SECRET_KEY is missing)" });
     }
 
-    if (data.secret !== secretKey) {
+    if (data.secret != secretKey) {
       return res.status(401).json({ error: "Invalid secret key" });
     }
 
