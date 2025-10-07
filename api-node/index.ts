@@ -3,11 +3,16 @@ import dotenv from "dotenv";
 import { safeParse } from "valibot";
 import { RequestSchema } from "./schemas.js";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
+
+const SECRET_KEY = process.env.SECRET_KEY?.trim();
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable("x-powered-by");
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
 app.get("/", (_req: Request, res: Response) => {
   res.json({ message: "API is working" });
@@ -25,34 +30,37 @@ app.post("/make", async (req: Request, res: Response) => {
     }
 
     const data = parsed.output;
-    const secretKey = process.env.SECRET_KEY?.trim();
-    console.log("SECRET_KEY:", secretKey ? secretKey : "Missing ❌");
-    console.log("DATA_SECRET:", data.secret ? data.secret.trim() : "Missing ❌");
 
-    // If the server-side secret isn't configured, return a helpful error so it's obvious
-    if (!secretKey) {
+    if (!SECRET_KEY) {
       return res.status(500).json({ error: "Server secret not configured (process.env.SECRET_KEY is missing)" });
     }
 
-    if (data.secret != secretKey) {
+    // Normalize and strictly compare secrets to avoid type-coercion surprises
+    const providedSecret = String(data.secret ?? "").trim();
+    if (providedSecret !== SECRET_KEY) {
       return res.status(401).json({ error: "Invalid secret key" });
     }
-
-    data.evaluationurl = String(data.evaluationurl);
 
     res.status(200).json({
       response: "Request received and parsed successfully",
       data_received: data
     });
   } catch (err) {
-    res.status(500).json({ error: (err as Error).message });
+    const e = err as Error;
+    return res.status(500).json({ error: process.env.NODE_ENV === "production" ? "Internal server error" : e.message });
   }
 });
 
+app.use((err: unknown, _req: Request, res: Response, _next: unknown) => {
+  const message = process.env.NODE_ENV === "production" ? "Internal server error" : (err as Error).message;
+  res.status(500).json({ error: message });
+});
+
 if (process.env.NODE_ENV !== "production") {
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+  console.log("SECRET_KEY configured:", Boolean(SECRET_KEY));
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
