@@ -4,7 +4,6 @@ import pino from "pino";
 import { safeParse } from "valibot";
 import { RequestSchema } from "./schemas.js";
 import fetch from "node-fetch";
-import CircuitBreaker from "opossum";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config();
@@ -37,19 +36,18 @@ app.use(express.urlencoded({ extended: true, limit: "100kb" }));
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
+  const originalJson = res.json.bind(res);
   
-  res.json = ((originalJson) => {
-    return function (body: any) {
-      const duration = Date.now() - start;
-      logger.info({
-        method: req.method,
-        path: req.path,
-        status: res.statusCode,
-        duration_ms: duration
-      });
-      return originalJson.call(this, body);
-    };
-  })(res.json.bind(res));
+  res.json = function (body: any): Response {
+    const duration = Date.now() - start;
+    logger.info({
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      duration_ms: duration
+    });
+    return originalJson(body);
+  };
   
   next();
 });
@@ -90,9 +88,9 @@ app.post("/make", async (req: Request, res: Response) => {
       {
         url: data.evaluationurl,
         payload: {
+          nonce: data.nonce,
           status: "success",
           repo_name: repoName,
-          nonce: data.nonce,
           timestamp,
         },
       },
@@ -119,47 +117,53 @@ interface CallbackConfig {
   maxRetries?: number;
 }
 
-const circuitBreakerOptions = {
-  timeout: CALLBACK_TIMEOUT,
-  errorThresholdPercentage: 50,
-  resetTimeout: 30000,
-  name: "callback-circuit"
+interface CircuitState {
+  failures: number;
+  lastFailureTime: number;
+  isOpen: boolean;
+}
+
+const circuitState: CircuitState = {
+  failures: 0,
+  lastFailureTime: 0,
+  isOpen: false
 };
 
-const callbackCircuitBreaker = new CircuitBreaker(
-  async (url: string, payload: Record<string, unknown>, timeout: number) => {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(timeout),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    return response;
-  },
-  circuitBreakerOptions
-);
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_RESET_TIMEOUT = 30000;
 
-callbackCircuitBreaker.on("open", () => {
-  logger.warn({ circuit: "callback", state: "open", message: "Circuit breaker opened" });
-});
+function checkCircuit(): boolean {
+  if (!circuitState.isOpen) {
+    return true;
+  }
+  
+  if (Date.now() - circuitState.lastFailureTime > CIRCUIT_RESET_TIMEOUT) {
+    logger.info({ circuit: "callback", state: "half-open", message: "Circuit breaker attempting reset" });
+    circuitState.isOpen = false;
+    circuitState.failures = 0;
+    return true;
+  }
+  
+  return false;
+}
 
-callbackCircuitBreaker.on("halfOpen", () => {
-  logger.info({ circuit: "callback", state: "half-open", message: "Circuit breaker half-open" });
-});
+function recordSuccess(): void {
+  if (circuitState.failures > 0) {
+    logger.info({ circuit: "callback", state: "closed", message: "Circuit breaker closed" });
+  }
+  circuitState.failures = 0;
+  circuitState.isOpen = false;
+}
 
-callbackCircuitBreaker.on("close", () => {
-  logger.info({ circuit: "callback", state: "closed", message: "Circuit breaker closed" });
-});
-
-callbackCircuitBreaker.fallback(() => {
-  logger.warn({ circuit: "callback", message: "Fallback triggered" });
-  throw new Error("Service unavailable - circuit open");
-});
+function recordFailure(): void {
+  circuitState.failures++;
+  circuitState.lastFailureTime = Date.now();
+  
+  if (circuitState.failures >= CIRCUIT_FAILURE_THRESHOLD && !circuitState.isOpen) {
+    circuitState.isOpen = true;
+    logger.warn({ circuit: "callback", state: "open", message: "Circuit breaker opened" });
+  }
+}
 
 function processCallbacks(callbacks: CallbackConfig[]): void {
   for (let i = 0; i < callbacks.length; i++) {
@@ -190,6 +194,15 @@ async function sendCallback(
 ): Promise<void> {
   const startTime = Date.now();
   
+  if (!checkCircuit()) {
+    logger.warn({
+      callback_index: callbackIndex,
+      action: "callback_circuit_open",
+      message: "Circuit breaker is open, skipping callback"
+    });
+    throw new Error("Circuit breaker is open");
+  }
+  
   try {
     logger.info({ 
       callback_index: callbackIndex,
@@ -198,7 +211,18 @@ async function sendCallback(
       action: "callback_attempt"
     });
     
-    await callbackCircuitBreaker.fire(url, payload, timeout);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeout),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    recordSuccess();
     
     const duration = Date.now() - startTime;
     logger.info({ 
@@ -214,6 +238,8 @@ async function sendCallback(
     const duration = Date.now() - startTime;
     const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
     const isRetryable = isTimeout || error.message.startsWith("HTTP 5");
+    
+    recordFailure();
     
     logger.error({
       callback_index: callbackIndex,
