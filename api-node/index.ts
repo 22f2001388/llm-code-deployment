@@ -25,9 +25,9 @@ app.post("/make", async (req: Request, res: Response) => {
     }
 
     const data = parsed.output;
-    const secretKey = process.env.SECRET_KEY;
-    console.log("SECRET_KEY:", process.env.SECRET_KEY ? process.env.SECRET_KEY : "Missing ❌");
-    console.log("DATA_SECRET:", data.secret ? data.secret : "Missing ❌");
+    const secretKey = process.env.SECRET_KEY?.trim();
+    console.log("SECRET_KEY:", secretKey ? secretKey : "Missing ❌");
+    console.log("DATA_SECRET:", data.secret ? data.secret.trim() : "Missing ❌");
 
     // If the server-side secret isn't configured, return a helpful error so it's obvious
     if (!secretKey) {
