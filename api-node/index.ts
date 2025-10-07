@@ -3,10 +3,7 @@ import dotenv from "dotenv";
 import { safeParse } from "valibot";
 import { RequestSchema } from "./schemas.js";
 
-// Load local .env only when running locally (don't attempt to load on Vercel production)
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
-}
+dotenv.config();
 
 const app = express();
 app.use(express.json());
@@ -26,6 +23,8 @@ app.post("/make", async (req: Request, res: Response) => {
         details: parsed.issues
       });
     }
+    console.log("SECRET_KEY:", process.env.SECRET_KEY ? "Loaded ✅" : "Missing ❌");
+
 
     const data = parsed.output;
     const secretKey = process.env.SECRET_KEY;
