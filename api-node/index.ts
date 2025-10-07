@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import pino from "pino";
 import { safeParse } from "valibot";
 import { RequestSchema } from "./schemas.js";
-import fetch from "node-fetch";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config();
@@ -211,12 +210,17 @@ async function sendCallback(
       action: "callback_attempt"
     });
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(timeout),
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
