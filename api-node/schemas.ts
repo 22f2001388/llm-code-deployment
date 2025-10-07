@@ -1,8 +1,8 @@
-import { object, string, number, array, optional, url, minLength } from "valibot";
+import { object, string, number, array, optional, pipe, url } from "valibot";
 
 export const AttachmentSchema = object({
   name: string("Attachment name must be a string"),
-  url: string("Attachment URL must be a string")
+  url: string("Attachment URL must be a string"),
 });
 
 export const RequestSchema = object({
@@ -13,6 +13,6 @@ export const RequestSchema = object({
   nonce: string("Nonce must be a string"),
   brief: string("Brief must be a string"),
   checks: array(string("Each check must be a string"), "Checks must be an array of strings"),
-  evaluationurl: url("Evaluation URL must be a valid URL"),
-  attachments: optional(array(AttachmentSchema, "Attachments must be an array of objects"))
+  evaluationurl: pipe(string("Evaluation URL must be a string"), url("Evaluation URL must be a valid URL")),
+  attachments: optional(array(AttachmentSchema, "Attachments must be an array of objects")),
 });
