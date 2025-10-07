@@ -1,12 +1,12 @@
 {
-  "name": "api",
+  "name": "llm-code-deployment",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "ts-node api-node/index.ts",
+    "dev": "tsx watch api-node/index.ts",
     "build": "tsc",
-    "start": "node dist/api/index.js"
+    "start": "tsx dist/api/index.ts"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +21,7 @@
     "express": "^5.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "zod": "^4.1.12"
+    "tsx": "^4.19.2",
+    "valibot": "^0.34.0"
   }
 }
