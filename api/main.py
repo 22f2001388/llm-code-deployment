@@ -1,9 +1,10 @@
 from fastapi import FastAPI
-from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from .schemas import Attachment
+from .schemas import RequestModel
 
-app = FastAPI(title="LLM Code Deployment API", version="0.1.0")
+app = FastAPI(title="LLM Code Deployment API")
 
 
 app.add_middleware(
@@ -22,19 +23,18 @@ def health():
 
 
 @app.post("/make")
-async def make(request: Request):
+async def make(request_data: RequestModel):
     try:
-        data = await request.json()
-        message = data.get("message")
+        parsed = request_data.dict()
+        parsed["evaluationurl"] = str(parsed["evaluationurl"])
 
-        if message:
+        if parsed:
             return JSONResponse(
-                content={"response": f"Yes, message received: '{message}'"}
-            )
-        else:
-            return JSONResponse(
-                content={"response": "Message received, but no 'message' field found"},
-                status_code=400,
+                content={
+                    "response": "Request received and parsed successfully",
+                    "data_recieved": parsed,
+                },
+                status_code=200,
             )
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
