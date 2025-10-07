@@ -1,8 +1,11 @@
+import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .schemas import Attachment
 from .schemas import RequestModel
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI(title="LLM Code Deployment API")
 
@@ -29,12 +32,15 @@ async def make(request_data: RequestModel):
         parsed["evaluationurl"] = str(parsed["evaluationurl"])
 
         if parsed:
-            return JSONResponse(
-                content={
-                    "response": "Request received and parsed successfully",
-                    "data_recieved": parsed,
-                },
-                status_code=200,
-            )
+            if parsed["secret"] == os.getenv("SECRET_KEY"):
+                return JSONResponse(
+                    content={
+                        "response": "Request received and parsed successfully",
+                        "data_recieved": parsed,
+                    },
+                    status_code=200,
+                )
+
+            raise ValueError("Invalid secret key")
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
