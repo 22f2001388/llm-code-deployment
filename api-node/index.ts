@@ -3,7 +3,10 @@ import dotenv from "dotenv";
 import { safeParse } from "valibot";
 import { RequestSchema } from "./schemas.js";
 
-dotenv.config();
+// Load local .env only when running locally (don't attempt to load on Vercel production)
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
 
 const app = express();
 app.use(express.json());
@@ -26,6 +29,11 @@ app.post("/make", async (req: Request, res: Response) => {
 
     const data = parsed.output;
     const secretKey = process.env.SECRET_KEY;
+
+    // If the server-side secret isn't configured, return a helpful error so it's obvious
+    if (!secretKey) {
+      return res.status(500).json({ error: "Server secret not configured (process.env.SECRET_KEY is missing)" });
+    }
 
     if (data.secret !== secretKey) {
       return res.status(401).json({ error: "Invalid secret key" });
