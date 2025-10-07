@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .schemas import RequestModel
+from api.schemas import RequestModel
 from dotenv import load_dotenv
 
 load_dotenv()
