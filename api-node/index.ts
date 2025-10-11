@@ -1,289 +1,218 @@
-import express, { Request, Response, NextFunction } from "express";
+import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import dotenv from "dotenv";
-import pino from "pino";
-import { safeParse } from "valibot";
-import { RequestSchema } from "./schemas.js";
+import { sendPrompt } from "./geminiClient.ts";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config();
 }
 
 const SECRET_KEY = process.env.SECRET_KEY?.trim();
-const CALLBACK_TIMEOUT = Number(process.env.CALLBACK_TIMEOUT) || 10000;
-const MAX_RETRIES = Number(process.env.MAX_RETRIES) || 3;
 
-const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
-  transport: process.env.NODE_ENV !== "production" ? {
-    target: "pino-pretty",
-    options: {
-      colorize: true,
-      ignore: "pid,hostname",
-      translateTime: "yyyy-mm-dd HH:MM:ss",
-      messageFormat: "\n{msg}\n"
-    }
-  } : undefined
+const fastify: FastifyInstance = Fastify({
+  logger: {
+    level: process.env.LOG_LEVEL || "info",
+    transport: process.env.NODE_ENV !== "production" ? {
+      target: "pino-pretty",
+      options: {
+        colorize: true,
+        ignore: "pid,hostname",
+        translateTime: "yyyy-mm-dd HH:MM:ss",
+      }
+    } : undefined
+  }
 });
 
-const app = express();
-
-app.disable("x-powered-by");
-app.disable("etag");
-
-app.use(express.json({ limit: "100kb" }));
-app.use(express.urlencoded({ extended: true, limit: "100kb" }));
-
-app.use((req: Request, res: Response, next: NextFunction) => {
-  const start = Date.now();
-  const originalJson = res.json.bind(res);
-  
-  res.json = function (body: any): Response {
-    const duration = Date.now() - start;
-    logger.info({
-      method: req.method,
-      path: req.path,
-      status: res.statusCode,
-      duration_ms: duration
-    });
-    return originalJson(body);
-  };
-  
-  next();
+// Health check route
+fastify.get("/", async (_request: FastifyRequest, reply: FastifyReply) => {
+  return reply.send({ message: "API is working" });
 });
 
-app.get("/", (_req: Request, res: Response) => {
-  res.json({ message: "API is working" });
-});
-
-app.post("/make", async (req: Request, res: Response) => {
-  try {
-    const parsed = safeParse(RequestSchema, req.body);
-    if (!parsed.success) {
-      logger.warn({ error: "Invalid request body", details: parsed.issues });
-      return res.status(400).json({
-        error: "Invalid request body",
-        details: parsed.issues,
-      });
-    }
-    
-    const data = parsed.output;
-    
-    if (!SECRET_KEY) {
-      logger.error("Server secret not configured");
-      return res.status(500).json({ error: "Server secret not configured" });
-    }
-    
-    if (String(data.secret ?? "").trim() !== SECRET_KEY) {
-      logger.warn({ error: "Invalid secret key attempt" });
-      return res.status(401).json({ error: "Invalid secret key" });
-    }
-    
-    res.status(200).json({ response: "Request received and being processed" });
-    
-    const repoName = `${data.task}-${data.nonce}`.replace(/\s+/g, "-");
-    const timestamp = new Date().toISOString();
-    
-    const callbacks = [
-      {
-        url: data.evaluationurl,
-        payload: {
-          nonce: data.nonce,
-          status: "success",
-          repo_name: repoName,
-          timestamp,
+// Main endpoint
+fastify.post("/make", {
+  schema: {
+    body: {
+      type: "object",
+      required: ["email", "secret", "task", "round", "nonce", "brief", "checks", "evaluationurl"],
+      properties: {
+        email: { type: "string" },
+        secret: { type: "string" },
+        task: { type: "string" },
+        round: { type: "number" },
+        nonce: { type: "string" },
+        brief: { type: "string" },
+        checks: {
+          type: "array",
+          items: { type: "string" }
         },
+        evaluationurl: { type: "string", format: "uri" },
+        attachments: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              url: { type: "string" }
+            },
+            required: ["name", "url"]
+          }
+        }
+      }
+    },
+    response: {
+      202: {
+        type: "object",
+        properties: {
+          message: { type: "string" },
+          timestamp: { type: "string" }
+        }
       },
-    ];
+      400: {
+        type: "object",
+        properties: {
+          error: { type: "string" }
+        }
+      },
+      401: {
+        type: "object",
+        properties: {
+          error: { type: "string" }
+        }
+      },
+      500: {
+        type: "object",
+        properties: {
+          error: { type: "string" }
+        }
+      }
+    }
+  }
+}, async (request: FastifyRequest, reply: FastifyReply) => {
+  const data = request.body as any;
+  
+  if (!SECRET_KEY) {
+    return reply.status(500).send({ error: "Server secret not configured" });
+  }
+  
+  if (String(data.secret ?? "").trim() !== SECRET_KEY) {
+    return reply.status(401).send({ error: "Invalid secret key" });
+  }
+  
+  // Send response immediately
+  await reply.status(202).send({
+    message: "Request accepted for processing",
+    timestamp: new Date().toISOString()
+  });
+
+  // Process with Gemini after response is sent
+  try {
+    const brief = data.brief;
+    const task = data.task;
+    const checks = data.checks;
     
-    setImmediate(() => {
-      processCallbacks(callbacks);
+    // Curated prompt for consistent JSON format
+    const geminiPrompt = `
+You are a senior full-stack developer and project architect. Create a detailed, executable development plan for this project:
+
+PROJECT TASK: ${task}
+PROJECT BRIEF: ${brief}
+PROJECT REQUIREMENTS: ${checks.join(', ')}
+
+Generate a comprehensive JSON development plan with this exact structure:
+{
+  "project_name": "descriptive_project_name",
+  "technology_stack": {
+    "frontend": ["primary_framework", "supporting_libraries"],
+    "backend": ["server_technology", "apis"],
+    "styling": ["css_framework", "ui_libraries"],
+    "build_tools": ["bundler", "package_manager"]
+  },
+  "project_structure": [
+    {"path": "file_or_directory_path", "type": "file|directory", "description": "purpose"}
+  ],
+  "implementation_steps": [
+    {
+      "id": 1,
+      "step_type": "setup|file_creation|code_implementation|configuration|testing",
+      "description": "specific_action_to_perform",
+      "llm_prompt": "detailed_prompt_to_send_to_llm_for_this_step",
+      "target_files": ["file_path1", "file_path2"],
+      "dependencies": [step_ids],
+      "validation_criteria": ["how_to_verify_success"],
+      "estimated_time_minutes": number
+    }
+  ],
+  "success_criteria": ["measurable_criterion1", "measurable_criterion2"]
+}
+
+CRITICAL REQUIREMENTS:
+- Choose the optimal technology stack based on project requirements
+- Design complete project structure with all necessary files
+- Each implementation step must include a detailed LLM prompt that can be executed independently
+- Steps should be atomic and self-contained
+- Include file paths, dependencies between steps, and validation criteria
+- NEVER include repository, GitHub, deployment, or infrastructure steps
+- Focus only on project development and implementation
+
+GUIDELINES FOR LLM PROMPTS:
+- Each prompt should contain all context needed to generate the required files/code
+- Include specific requirements, expected functionality, and technical constraints
+- Reference the technology stack you've chosen
+- Make prompts clear and actionable for code generation
+
+Return ONLY the raw JSON without any additional text or markdown.
+
+JSON OUTPUT:`;
+
+    fastify.log.info("Sending brief to Gemini for structured plan...");
+    
+    // Start timing the Gemini request
+    const geminiStartTime = Date.now();
+
+    const geminiResponse = await sendPrompt(
+      geminiPrompt,
+      "gemini-2.5-pro"
+    );
+    
+    // Calculate response time
+    const geminiEndTime = Date.now();
+    const geminiResponseTime = geminiEndTime - geminiStartTime;
+    // Strip any markdown code block markers
+    let cleanJson = geminiResponse
+      .replace(/```json\s*/g, '')
+      .replace(/\s*```/g, '')
+      .replace(/^JSON:\s*/i, '')
+      .trim();
+
+    fastify.log.info(`Gemini response received in ${geminiResponseTime}ms`);
+    
+    // Parse and validate the JSON
+    const jsonPlan = JSON.parse(cleanJson);
+    console.log(`Gemini response: ${geminiResponse}`);
+    console.log(`Json response: ${cleanJson}`);
+    fastify.log.info({ 
+      message: "Structured JSON plan parsed successfully",
+      stepCount: jsonPlan.steps ? jsonPlan.steps.length : 0,
+      totalTime: jsonPlan.total_estimated_time_minutes,
+      geminiResponseTime: `${geminiResponseTime}ms`
     });
     
-  } catch (err) {
-    logger.error({ error: (err as Error).message, stack: (err as Error).stack });
-    return res.status(500).json({
-      error: process.env.NODE_ENV === "production" 
-        ? "Internal server error" 
-        : (err as Error).message,
+  } catch (error) {
+    fastify.log.error({ 
+      error: "Gemini processing failed",
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
-interface CallbackConfig {
-  url: string;
-  payload: Record<string, unknown>;
-  timeout?: number;
-  maxRetries?: number;
-}
-
-interface CircuitState {
-  failures: number;
-  lastFailureTime: number;
-  isOpen: boolean;
-}
-
-const circuitState: CircuitState = {
-  failures: 0,
-  lastFailureTime: 0,
-  isOpen: false
+// Start server
+const start = async () => {
+  try {
+    const PORT = Number(process.env.PORT) || 3000;
+    await fastify.listen({ port: PORT, host: '0.0.0.0' });
+  } catch (err) {
+    fastify.log.error(err);
+    process.exit(1);
+  }
 };
 
-const CIRCUIT_FAILURE_THRESHOLD = 5;
-const CIRCUIT_RESET_TIMEOUT = 30000;
-
-function checkCircuit(): boolean {
-  if (!circuitState.isOpen) {
-    return true;
-  }
-  
-  if (Date.now() - circuitState.lastFailureTime > CIRCUIT_RESET_TIMEOUT) {
-    logger.info({ circuit: "callback", state: "half-open", message: "Circuit breaker attempting reset" });
-    circuitState.isOpen = false;
-    circuitState.failures = 0;
-    return true;
-  }
-  
-  return false;
-}
-
-function recordSuccess(): void {
-  if (circuitState.failures > 0) {
-    logger.info({ circuit: "callback", state: "closed", message: "Circuit breaker closed" });
-  }
-  circuitState.failures = 0;
-  circuitState.isOpen = false;
-}
-
-function recordFailure(): void {
-  circuitState.failures++;
-  circuitState.lastFailureTime = Date.now();
-  
-  if (circuitState.failures >= CIRCUIT_FAILURE_THRESHOLD && !circuitState.isOpen) {
-    circuitState.isOpen = true;
-    logger.warn({ circuit: "callback", state: "open", message: "Circuit breaker opened" });
-  }
-}
-
-function processCallbacks(callbacks: CallbackConfig[]): void {
-  for (let i = 0; i < callbacks.length; i++) {
-    const config = callbacks[i];
-    sendCallback(
-      config.url,
-      config.payload,
-      config.timeout,
-      config.maxRetries,
-      i
-    ).catch(err => {
-      logger.error({ 
-        callback_index: i, 
-        error: err.message,
-        url: config.url
-      });
-    });
-  }
-}
-
-async function sendCallback(
-  url: string,
-  payload: Record<string, unknown>,
-  timeout = CALLBACK_TIMEOUT,
-  maxRetries = MAX_RETRIES,
-  callbackIndex: number,
-  attempt = 0
-): Promise<void> {
-  const startTime = Date.now();
-  
-  if (!checkCircuit()) {
-    logger.warn({
-      callback_index: callbackIndex,
-      action: "callback_circuit_open",
-      message: "Circuit breaker is open, skipping callback"
-    });
-    throw new Error("Circuit breaker is open");
-  }
-  
-  try {
-    logger.info({ 
-      callback_index: callbackIndex,
-      attempt: attempt + 1, 
-      url,
-      action: "callback_attempt"
-    });
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    
-    recordSuccess();
-    
-    const duration = Date.now() - startTime;
-    logger.info({ 
-      callback_index: callbackIndex,
-      attempt: attempt + 1,
-      url,
-      duration_ms: duration,
-      action: "callback_success"
-    });
-    
-  } catch (err) {
-    const error = err as Error;
-    const duration = Date.now() - startTime;
-    const isTimeout = error.name === "TimeoutError" || error.name === "AbortError";
-    const isRetryable = isTimeout || error.message.startsWith("HTTP 5");
-    
-    recordFailure();
-    
-    logger.error({
-      callback_index: callbackIndex,
-      attempt: attempt + 1,
-      url,
-      error: error.message,
-      duration_ms: duration,
-      is_timeout: isTimeout,
-      is_retryable: isRetryable,
-      action: "callback_error"
-    });
-    
-    if (isRetryable && attempt < maxRetries) {
-      const delay = Math.pow(2, attempt) * 1000;
-      logger.info({
-        callback_index: callbackIndex,
-        retry_after_ms: delay,
-        action: "callback_retry_scheduled"
-      });
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return sendCallback(url, payload, timeout, maxRetries, callbackIndex, attempt + 1);
-    }
-    
-    throw error;
-  }
-}
-
-app.use((err: unknown, _req: Request, res: Response, _next: unknown) => {
-  logger.error({ error: (err as Error).message, stack: (err as Error).stack });
-  
-  res.status(500).json({ 
-    error: process.env.NODE_ENV === "production" 
-      ? "Internal server error" 
-      : (err as Error).message 
-  });
-});
-
-if (process.env.NODE_ENV !== "production") {
-  const PORT = Number(process.env.PORT) || 3000;
-  app.listen(PORT, () => {});
-}
-
-export default app;
+start();
