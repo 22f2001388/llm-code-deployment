@@ -1,18 +1,57 @@
-import { object, string, number, array, optional, pipe, url } from "valibot";
-
-export const AttachmentSchema = object({
-  name: string("Attachment name must be a string"),
-  url: string("Attachment URL must be a string"),
-});
-
-export const RequestSchema = object({
-  email: string("Email must be a string"),
-  secret: string("Secret key is required"),
-  task: string("Task must be a string"),
-  round: number("Round must be a number"),
-  nonce: string("Nonce must be a string"),
-  brief: string("Brief must be a string"),
-  checks: array(string("Each check must be a string"), "Checks must be an array of strings"),
-  evaluationurl: pipe(string("Evaluation URL must be a string"), url("Evaluation URL must be a valid URL")),
-  attachments: optional(array(AttachmentSchema, "Attachments must be an array of objects")),
-});
+export const makeSchema = {
+  body: {
+    type: "object",
+    required: ["email", "secret", "task", "round", "nonce", "brief", "checks", "evaluation_url"],
+    properties: {
+      email: { type: "string" },
+      secret: { type: "string" },
+      task: { type: "string" },
+      round: { type: "number" },
+      nonce: { type: "string" },
+      brief: { type: "string" },
+      checks: {
+        type: "array",
+        items: { type: "string" }
+      },
+      evaluation_url: { type: "string", format: "uri" },
+      attachments: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            url: { type: "string" }
+          },
+          required: ["name", "url"]
+        }
+      }
+    }
+  },
+  response: {
+    202: {
+      type: "object",
+      properties: {
+        message: { type: "string" },
+        timestamp: { type: "string" }
+      }
+    },
+    400: {
+      type: "object",
+      properties: {
+        error: { type: "string" }
+      }
+    },
+    401: {
+      type: "object",
+      properties: {
+        error: { type: "string" }
+      }
+    },
+    500: {
+      type: "object",
+      properties: {
+        error: { type: "string" }
+      }
+    }
+  }
+};

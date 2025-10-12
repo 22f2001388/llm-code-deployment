@@ -9,38 +9,33 @@ const SECRET_KEY = process.env.SECRET_KEY;
 const CALLBACK_PORT = 3001;
 
 let callbackReceived = false;
-let callbackData: any = null;
 
-function startCallbackReceiver(): Promise<any> {
+function startCallbackReceiver(timeout: number): Promise<any> {
   return new Promise((resolve) => {
     const app = express();
     app.use(express.json());
-
-    app.post("/notify", (req, res) => {
-      console.log("\n=== Callback Received ===");
-      console.log("Headers:", req.headers);
-      console.log("Body:", JSON.stringify(req.body, null, 2));
-      
-      callbackReceived = true;
-      callbackData = req.body;
-      
-      res.status(200).json({ received: true });
-      
-      resolve(req.body);
-    });
-
     const server = app.listen(CALLBACK_PORT, () => {
       console.log(`Callback receiver listening on http://localhost:${CALLBACK_PORT}/notify\n`);
     });
 
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (!callbackReceived) {
         console.log("\n=== Callback Timeout ===");
-        console.log("No callback received within timeout period");
+        console.log("No callback received within the timeout period.");
         server.close();
         resolve(null);
       }
-    }, 15000);
+    }, timeout);
+
+    app.post("/notify", (req, res) => {
+      console.log("\n=== Callback Received ===");
+      console.log("Body:", JSON.stringify(req.body, null, 2));
+      callbackReceived = true;
+      res.status(200).json({ received: true });
+      server.close();
+      clearTimeout(timeoutId);
+      resolve(req.body);
+    });
   });
 }
 
@@ -51,100 +46,65 @@ const makePayload = {
   round: 1,
   nonce: "ab12-cd34-ef56",
   brief: "Create a captcha solver that handles ?url=https...image.png",
-  checks: [
-    "Repo has MIT license",
-    "Page displays solved text within 15 seconds"
-  ],
-  evaluationurl: `http://localhost:${CALLBACK_PORT}/notify`,
-  attachments: [
-    {
-      name: "sample.png",
-      url: "data:image/png;base64,iVBORw..."
-    }
-  ]
+  checks: ["Repo has MIT license", "Page displays solved text within 15 seconds"],
+  evaluation_url: `http://localhost:${CALLBACK_PORT}/notify`,
 };
 
-async function testGetEndpoint() {
+async function testEndpoint(url: string, method: string = "GET", body: any = null) {
   const startTime = Date.now();
+  let response: any;
   try {
-    const response = await fetch(`${BASE_URL}/`);
+    const options: any = { method, headers: {} };
+    if (body) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    response = await fetch(url, options);
     const data = await response.json();
     const duration = Date.now() - startTime;
-    
-    console.log("\n=== GET / Endpoint ===");
+    console.log(`\n=== ${method} ${url} ===`);
     console.log("Status:", response.status);
     console.log("Duration:", duration, "ms");
     console.log("Response:", data);
-    console.log("Success:", response.ok);
-    
-    return { success: response.ok, duration };
+    return { success: response.ok, duration, status: response.status };
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.log("\n=== GET / Endpoint ===");
+    console.log(`\n=== ${method} ${url} ===`);
     console.log("Error:", (error as Error).message);
     console.log("Duration:", duration, "ms");
-    
-    return { success: false, duration, error: (error as Error).message };
+    return { success: false, duration, error: (error as Error).message, status: response?.status };
   }
 }
 
-async function testMakeEndpoint() {
-  const startTime = Date.now();
-  try {
-    const response = await fetch(`${BASE_URL}/make`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(makePayload)
-    });
-    const data = await response.json();
-    const duration = Date.now() - startTime;
-    
-    console.log("\n=== POST /make Endpoint ===");
-    console.log("Status:", response.status);
-    console.log("Duration:", duration, "ms");
-    console.log("Response:", data);
-    console.log("Success:", response.ok);
-    
-    return { success: response.ok, duration };
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.log("\n=== POST /make Endpoint ===");
-    console.log("Error:", (error as Error).message);
-    console.log("Duration:", duration, "ms");
-    
-    return { success: false, duration, error: (error as Error).message };
-  }
-}
-
-async function runParallelTests() {
-  console.log("Starting parallel endpoint tests...");
+async function runTests() {
+  console.log("Starting endpoint tests...");
   console.log("Base URL:", BASE_URL);
-  console.log("Using SECRET_KEY from env:", SECRET_KEY ? "✓" : "✗");
   
   const overallStartTime = Date.now();
   
-  const callbackPromise = startCallbackReceiver();
+  const callbackPromise = startCallbackReceiver(500000);
   
+  // Allow time for the callback server to start
   await new Promise(resolve => setTimeout(resolve, 1000));
   
-  const results = await Promise.all([
-    testGetEndpoint(),
-    testMakeEndpoint()
-  ]);
+  const getTest = await testEndpoint(`${BASE_URL}/`);
+  const postTest = await testEndpoint(`${BASE_URL}/make`, "POST", makePayload);
   
   console.log("\n=== Waiting for Callback ===");
-  const callback = await callbackPromise;
+  const callbackResult = await callbackPromise;
   
   const overallDuration = Date.now() - overallStartTime;
   
   console.log("\n=== Test Summary ===");
-  console.log("Total Duration:", overallDuration, "ms");
-  console.log("GET / Result:", results[0].success ? "PASS" : "FAIL");
-  console.log("POST /make Result:", results[1].success ? "PASS" : "FAIL");
-  console.log("Callback Result:", callback ? "PASS" : "FAIL");
-  console.log("All Tests:", results.every(r => r.success) && callback ? "PASS" : "FAIL");
+  console.log(`Total Duration: ${overallDuration}ms`);
+  console.log(`GET /: ${getTest.success ? 'PASS' : 'FAIL'} (${getTest.duration}ms, status ${getTest.status})`);
+  console.log(`POST /make: ${postTest.success ? 'PASS' : 'FAIL'} (${postTest.duration}ms, status ${postTest.status})`);
+  console.log(`Callback: ${callbackResult ? 'PASS' : 'FAIL'}`);
+
+  const allTestsPassed = getTest.success && postTest.success && callbackResult;
+  console.log(`\nAll Tests: ${allTestsPassed ? 'PASS' : 'FAIL'}`);
   
-  process.exit(0);
+  process.exit(allTestsPassed ? 0 : 1);
 }
 
-runParallelTests();
+runTests();
