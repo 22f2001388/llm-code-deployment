@@ -4,10 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch api-node/index.ts",
+    "dev": "tsx watch api/index.ts",
     "build": "tsc",
     "start": "tsx dist/api/index.ts",
-    "test:endpoints": "tsx api-node/test.ts"
+    "test:endpoints": "tsx api/test.ts"
   },
   "keywords": [],
   "author": "",

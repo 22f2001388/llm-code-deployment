@@ -12,6 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "include": ["api-node/**/*"],
+  "include": ["api/**/*"],
   "exclude": ["node_modules", "dist"]
 }
