@@ -4,6 +4,7 @@ import { sendPrompt } from "./geminiClient";
 import { getPlanPrompt } from "./prompts";
 import { makeSchema } from "./schemas";
 import fetch from "node-fetch";
+import * as fs from "fs";
 
 if (process.env.NODE_ENV !== "production") {
   dotenv.config();
@@ -11,19 +12,21 @@ if (process.env.NODE_ENV !== "production") {
 
 const SECRET_KEY = process.env.SECRET_KEY?.trim();
 
+const logStream = fs.createWriteStream('logs/api.log', { flags: 'a' });
+
 const fastify: FastifyInstance = Fastify({
   logger: {
     level: process.env.LOG_LEVEL || "info",
-    transport: process.env.NODE_ENV !== "production" ? {
-      target: "pino-pretty",
-      options: {
-        colorize: true,
-        ignore: "pid,hostname",
-        translateTime: "yyyy-mm-dd HH:MM:ss",
-      }
-    } : undefined
+    stream: logStream
   }
 });
+
+async function logDetails(title: string, content: any) {
+  const timestamp = new Date().toISOString();
+  const formattedContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  const logEntry = `\n--- ${title} @ ${timestamp} ---\n${formattedContent}\n`;
+  await fs.promises.appendFile('logs/run_details.log', logEntry);
+}
 
 async function processRequest(data: any, log: any) {
   try {
@@ -44,6 +47,8 @@ async function processRequest(data: any, log: any) {
     log.info(`Gemini response received in ${geminiResponseTime}ms`);
     const jsonPlan = JSON.parse(cleanJson);
 
+    await logDetails("Full JSON Plan", jsonPlan);
+
     log.info({ 
       message: "Structured JSON plan parsed successfully",
       projectName: jsonPlan.project_name,
@@ -54,24 +59,15 @@ async function processRequest(data: any, log: any) {
       geminiResponseTime: `${geminiResponseTime}ms`
     });
 
-    console.log("Complete Project Structure:");
-    jsonPlan.project_structure.forEach((item: any) => {
-      if (item.type === 'directory') {
-        console.log(`📁 ${item.path} - ${item.description}`);
-      } else {
-        console.log(`📄 ${item.path} - ${item.description}`);
-        if (item.content_hint) {
-          console.log(`   💡 ${item.content_hint}`);
-        }
-      }
-    });
+    await logDetails("Project Structure", jsonPlan.project_structure.map((item: any) => `
+${item.type === 'directory' ? '📁' : '📄'} ${item.path} - ${item.description}${item.content_hint ? `\n   💡 ${item.content_hint}` : ''}`).join(''));
 
     if (jsonPlan.implementation_steps) {
       const stepPromises = jsonPlan.implementation_steps.map(async (step: any) => {
         log.info(`Executing step ${step.id}: ${step.description}`);
         try {
           const stepResponse = await sendPrompt(step.llm_prompt, "gemini-flash-lite-latest");
-          console.log(`Step ${step.id} content:`, stepResponse);
+          await logDetails(`Step ${step.id} Content`, stepResponse);
           log.info(`Step ${step.id} completed successfully`);
           return { id: step.id, success: true, response: stepResponse };
         } catch (error) {
@@ -80,17 +76,20 @@ async function processRequest(data: any, log: any) {
         }
       });
       const stepResults = await Promise.all(stepPromises);
+      await logDetails("Step Results", stepResults);
       await sendCallback(evaluation_url, { success: true, plan: jsonPlan, stepResults }, log);
     } else {
       await sendCallback(evaluation_url, { success: true, plan: jsonPlan, stepResults: [] }, log);
     }
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     log.error({ 
       error: "Gemini processing failed",
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: errorMessage
     });
-    await sendCallback(data.evaluation_url, { success: false, error: error instanceof Error ? error.message : 'Unknown error' }, log);
+    await logDetails("Processing Error", errorMessage);
+    await sendCallback(data.evaluation_url, { success: false, error: errorMessage }, log);
   }
 }
 

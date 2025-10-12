@@ -32,3 +32,4 @@ npm-debug.log*
 coverage/
 
 # Add more ignores here if the repo creates additional build/artifact folders
+logs/
