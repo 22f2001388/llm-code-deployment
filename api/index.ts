@@ -12,7 +12,7 @@ if (process.env.NODE_ENV !== "production") {
 
 const SECRET_KEY = process.env.SECRET_KEY?.trim();
 
-const logStream = fs.createWriteStream('logs/api.log', { flags: 'a' });
+const logStream = fs.createWriteStream('logs/api.log', { flags: 'w' });
 
 const fastify: FastifyInstance = Fastify({
   logger: {
@@ -30,6 +30,9 @@ async function logDetails(title: string, content: any) {
 
 async function processRequest(data: any, log: any) {
   try {
+    // Clear run_details.log at the start of each request
+    await fs.promises.writeFile('logs/run_details.log', '');
+
     const { brief, task, checks, evaluation_url } = data;
     const geminiPrompt = getPlanPrompt(task, brief, checks);
 
@@ -63,19 +66,56 @@ async function processRequest(data: any, log: any) {
 ${item.type === 'directory' ? '📁' : '📄'} ${item.path} - ${item.description}${item.content_hint ? `\n   💡 ${item.content_hint}` : ''}`).join(''));
 
     if (jsonPlan.implementation_steps) {
-      const stepPromises = jsonPlan.implementation_steps.map(async (step: any) => {
+      const stepResults = [];
+      for (const step of jsonPlan.implementation_steps) {
         log.info(`Executing step ${step.id}: ${step.description}`);
         try {
-          const stepResponse = await sendPrompt(step.llm_prompt, "gemini-flash-lite-latest");
+          let fileContents = '';
+          for (const file of step.target_files) {
+            try {
+              const content = await fs.promises.readFile(file, 'utf-8');
+              fileContents += `--- file: ${file} ---\n${content}\n--- endfile ---\n\n`;
+            } catch (error) {
+              fileContents += `--- file: ${file} ---\nThis file is new and does not have any content yet.\n--- endfile ---\n\n`;
+            }
+          }
+
+          let isUpdate = false;
+          for (const file of step.target_files) {
+            try {
+              await fs.promises.access(file, fs.constants.F_OK);
+              isUpdate = true;
+              break;
+            } catch (error) {
+              // File does not exist
+            }
+          }
+
+          const model = isUpdate ? 'gemini-flash-latest' : 'gemini-flash-lite-latest';
+          log.info(`Using model: ${model}`);
+
+          const promptWithContext = `Here is the current content of the files you need to modify:\n\n${fileContents}${step.llm_prompt}`;
+
+          const stepResponse = await sendPrompt(promptWithContext, model);
           await logDetails(`Step ${step.id} Content`, stepResponse);
+
+          const fileUpdates = stepResponse.split('--- file: ');
+          for (const update of fileUpdates) {
+            if (update.trim()) {
+              const [filePath, ...contentParts] = update.split(' ---\n');
+              const newContent = contentParts.join(' ---\n').replace(/--- endfile ---/g, '').trim();
+              await fs.promises.writeFile(filePath.trim(), newContent);
+            }
+          }
+
           log.info(`Step ${step.id} completed successfully`);
-          return { id: step.id, success: true, response: stepResponse };
+          stepResults.push({ id: step.id, success: true, response: stepResponse });
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           log.error(`Step ${step.id} failed:`, error);
-          return { id: step.id, success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+          stepResults.push({ id: step.id, success: false, error: errorMessage });
         }
-      });
-      const stepResults = await Promise.all(stepPromises);
+      }
       await logDetails("Step Results", stepResults);
       await sendCallback(evaluation_url, { success: true, plan: jsonPlan, stepResults }, log);
     } else {
