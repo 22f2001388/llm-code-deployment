@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import express from "express";
 import fetch from "node-fetch";
+import * as fs from "fs";
 
 dotenv.config();
 
@@ -76,6 +77,15 @@ async function testEndpoint(url: string, method: string = "GET", body: any = nul
   }
 }
 
+async function checkLogFiles() {
+    console.log("\n=== Checking Log Files ===");
+    const logDirExists = fs.existsSync('logs');
+    const apiLogExists = fs.existsSync('logs/api.log');
+    console.log(`'logs' directory exists: ${logDirExists}`);
+    console.log(`'logs/api.log' exists: ${apiLogExists}`);
+    return logDirExists && apiLogExists;
+}
+
 async function runTests() {
   console.log("Starting endpoint tests...");
   console.log("Base URL:", BASE_URL);
@@ -89,6 +99,7 @@ async function runTests() {
   
   const getTest = await testEndpoint(`${BASE_URL}/`);
   const postTest = await testEndpoint(`${BASE_URL}/make`, "POST", makePayload);
+  const logsCheck = await checkLogFiles();
   
   console.log("\n=== Waiting for Callback ===");
   const callbackResult = await callbackPromise;
@@ -99,9 +110,10 @@ async function runTests() {
   console.log(`Total Duration: ${overallDuration}ms`);
   console.log(`GET /: ${getTest.success ? 'PASS' : 'FAIL'} (${getTest.duration}ms, status ${getTest.status})`);
   console.log(`POST /make: ${postTest.success ? 'PASS' : 'FAIL'} (${postTest.duration}ms, status ${postTest.status})`);
+  console.log(`Log files created: ${logsCheck ? 'PASS' : 'FAIL'}`);
   console.log(`Callback: ${callbackResult ? 'PASS' : 'FAIL'}`);
 
-  const allTestsPassed = getTest.success && postTest.success && callbackResult;
+  const allTestsPassed = getTest.success && postTest.success && callbackResult && logsCheck;
   console.log(`\nAll Tests: ${allTestsPassed ? 'PASS' : 'FAIL'}`);
   
   process.exit(allTestsPassed ? 0 : 1);

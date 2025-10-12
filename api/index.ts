@@ -12,6 +12,12 @@ if (process.env.NODE_ENV !== "production") {
 
 const SECRET_KEY = process.env.SECRET_KEY?.trim();
 
+const logDir = 'logs';
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir);
+}
+
+
 const logStream = fs.createWriteStream('logs/api.log', { flags: 'w' });
 
 const fastify: FastifyInstance = Fastify({
@@ -24,7 +30,7 @@ const fastify: FastifyInstance = Fastify({
 async function logDetails(title: string, content: any) {
   const timestamp = new Date().toISOString();
   const formattedContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
-  const logEntry = `\n--- ${title} @ ${timestamp} ---\n${formattedContent}\n`;
+  const logEntry = `--- ${title} @ ${timestamp} ---\n${formattedContent}`;
   await fs.promises.appendFile('logs/run_details.log', logEntry);
 }
 
