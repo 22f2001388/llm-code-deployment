@@ -7,7 +7,7 @@
     "dev": "tsx watch api/index.ts",
     "build": "tsc",
     "start": "tsx dist/api/index.ts",
-    "test": "dotenv -e .env -- tsx api/test.ts",
+    "test": "tsx api/test.ts",
     "test:unit": "vitest"
   },
   "keywords": [],
@@ -18,10 +18,9 @@
     "@google/genai": "^1.25.0",
     "@types/node": "^24.8.0",
     "dotenv": "^17.2.3",
-    "dotenv-cli": "^10.0.0",
     "fastify": "^5.6.1",
     "node-fetch": "^3.3.2",
-    "tsx": "^4.20.6",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3"
   },
   "devDependencies": {

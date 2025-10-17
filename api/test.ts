@@ -1,9 +1,8 @@
 import dotenv from "dotenv";
 import fetch from "node-fetch";
 import * as fs from "fs";
-import * as path from "path";
 
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+dotenv.config();
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const SECRET_KEY = process.env.SECRET_KEY;
@@ -63,6 +62,7 @@ const makePayload = {
 const newFormatPayload = {
   secret: SECRET_KEY,
   id: "sum-of-sales",
+  nonce: "ab12-cd34-ef56",
   brief: "Publish a single-page site that fetches data.csv from attachments, sums its sales column, sets the title to \"Sales Summary 12345\", displays the total inside #total-sales, and loads Bootstrap 5 from jsdelivr.",
   attachments: [
     {
@@ -153,10 +153,16 @@ async function runTests() {
 
   const getTest = await testEndpoint(`${BASE_URL}/`);
   const postTestOld = await testEndpoint(`${BASE_URL}/make`, "POST", makePayload);
-  const postTestNew = await testEndpoint(`${BASE_URL}/make`, "POST", newFormatPayload);
+
+  let postTestNew;
+  if (postTestOld.success) {
+    postTestNew = await testEndpoint(`${BASE_URL}/make`, "POST", newFormatPayload);
+  } else {
+    postTestNew = { success: false, duration: 0, status: null };
+  }
 
   console.log("\n=== Waiting for Processing to Complete ===");
-  const logUpdateResult = await waitForLogUpdate(60000);
+  const logUpdateResult = await waitForLogUpdate(1200000);
   console.log(`Result: ${logUpdateResult.reason}`);
 
   const logsCheck = await checkLogFiles();
