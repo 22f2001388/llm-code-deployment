@@ -5,6 +5,9 @@ import {
   ModelName,
   CompressionResult
 } from "./schemas";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 class SmartChat {
   private chat: any;
@@ -357,5 +360,89 @@ class GeminiClient {
   }
 }
 
+class AipipeClient {
+  private static instance: AipipeClient;
+  private token: string;
+  private timeout: number;
+
+  private constructor() {
+    const token = process.env.AIPIPE_TOKEN;
+    if (!token) {
+      throw new Error("AIPIPE_TOKEN not set");
+    }
+    this.token = token;
+    this.timeout = 120000;
+  }
+
+  static getInstance(): AipipeClient {
+    if (!AipipeClient.instance) {
+      AipipeClient.instance = new AipipeClient();
+    }
+    return AipipeClient.instance;
+  }
+
+  setTimeout(ms: number): void {
+    this.timeout = ms;
+  }
+
+  async generate(
+    prompt: string,
+    model: string = "openai/gpt-5-nano",
+  ): Promise<GenerateResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch("https://aipipe.org/openrouter/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: "user", content: prompt }],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
+      }
+
+      const text = await response.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error("Empty response from API");
+      }
+
+      const data = JSON.parse(text);
+      return this.mapToGenerateResponse(data);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === "AbortError") {
+        throw new Error(`Request timeout after ${this.timeout}ms`);
+      }
+      throw error;
+    }
+  }
+
+  private mapToGenerateResponse(response: any): GenerateResponse {
+    return {
+      text: response.choices?.[0]?.message?.content ?? "",
+      usage: response.usage
+        ? {
+          promptTokens: response.usage.prompt_tokens ?? 0,
+          completionTokens: response.usage.completion_tokens ?? 0,
+          totalTokens: response.usage.total_tokens ?? 0,
+        }
+        : undefined,
+    };
+  }
+}
+
 export const gemini = GeminiClient.getInstance();
-export default GeminiClient;
+export const aipipe = AipipeClient.getInstance();
+export default { GeminiClient, AipipeClient };

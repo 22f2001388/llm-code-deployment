@@ -110,7 +110,6 @@ REQUIRED JSON OUTPUT:
       {
         "name": "string",
         "version": "string or latest",
-        "installation_command": "string",
         "import_statement": "string"
       }
     ],
