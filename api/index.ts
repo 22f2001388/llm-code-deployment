@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { config } from "./config";
 import { gemini, aipipe } from "./geminiClient";
 import { getMvpPrompt, getPlanPrompt } from "./prompts";
-import { makeSchema } from "./schemas";
+import { makeSchema, CreateRepoData } from "./schemas";
 import { githubService } from "./gitHub";
 import fetch from "node-fetch";
 import * as fs from "fs";
@@ -32,6 +32,34 @@ async function logDetails(title: string, content: any) {
   const formattedContent = typeof content === "string" ? content : JSON.stringify(content, null, 2);
   const logEntry = `--- ${title} @ ${timestamp} ---\n\n${formattedContent}\n\n--- END ${title} ---\n\n`;
   await fs.promises.appendFile(reviewLog, logEntry);
+}
+
+async function generateRepoDescription(projectName: string): Promise<string> {
+  const response = await gemini.generate(
+    `Generate a concise, professional GitHub repository description (max 100 characters) for a project named "${projectName}". Return only the description text, nothing else.`,
+    "gemini-flash-lite-latest",
+    { temperature: 0.7, maxOutputTokens: 100 }
+  );
+  return response.text.trim();
+}
+
+async function createProjectRepo(projectName: string, mvp?: any): Promise<void> {
+  const user = await githubService.getAuthenticatedUser();
+
+  const description = mvp?.definition?.core_purpose
+    ? mvp.definition.core_purpose.substring(0, 100)
+    : await generateRepoDescription(projectName);
+
+  const repoData: CreateRepoData = {
+    name: projectName,
+    description,
+    private: false,
+    auto_init: true,
+    license_template: "mit"
+  };
+
+  const repo = await githubService.createRepository(repoData);
+  console.log(`Repository created: ${repo.html_url}`);
 }
 
 async function retryWithFallback<T>(
@@ -77,6 +105,8 @@ async function processRequest(data: any, log: any) {
     const mvp = JSON.parse(mvpResponse.text);
     log.info({ message: "MVP parsed successfully", projectName });
     await logDetails(`${projectName}: MVP`, mvp);
+
+    await createProjectRepo(projectName, mvp);
 
     log.info(`${projectName}: Requesting Plan`);
     const planPrompt = getPlanPrompt(JSON.stringify(mvp, null, 1));

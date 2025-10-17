@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "tsx api/index.ts",
     "test": "tsx api/test.ts",
+    "test-render": "tsx api/test-render.ts",
     "test:unit": "vitest"
   },
   "keywords": [],
