@@ -91,7 +91,8 @@ async function processRequest(data: any, log: any) {
             systemInstruction: planPrompt[1],
           });
           const response = await planChat.sendMessage(planPrompt[0]);
-          return response.text();
+          const planResponse = await primaryClient.generate(planPrompt[1] + "\n\n" + planPrompt[0]);
+          return planResponse.text;
         } else {
           const planResponse = await primaryClient.generate(planPrompt[1] + "\n\n" + planPrompt[0]);
           return planResponse.text;
@@ -105,8 +106,8 @@ async function processRequest(data: any, log: any) {
             thinkingBudget: 8192,
             systemInstruction: planPrompt[1],
           });
-          const response = await planChat.sendMessage(planPrompt[0]);
-          return response.text();
+          const planResponse = await fallbackClient.generate(planPrompt[1] + "\n\n" + planPrompt[0]);
+          return planResponse.text;
         } else {
           const planResponse = await fallbackClient.generate(planPrompt[1] + "\n\n" + planPrompt[0], "openai/gpt-5-mini");
           return planResponse.text;

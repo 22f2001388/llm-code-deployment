@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch api/index.ts",
     "build": "tsc",
-    "start": "tsx dist/api/index.ts",
+    "start": "tsx api/index.ts",
     "test": "tsx api/test.ts",
     "test:unit": "vitest"
   },

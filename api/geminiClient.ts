@@ -418,7 +418,7 @@ class AipipeClient {
       return this.mapToGenerateResponse(data);
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error.name === "AbortError") {
+      if ((error as Error).name === "AbortError") {
         throw new Error(`Request timeout after ${this.timeout}ms`);
       }
       throw error;
