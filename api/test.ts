@@ -60,6 +60,24 @@ const makePayload = {
   evaluation_url: "http://localhost:3001/notify",
 };
 
+const newFormatPayload = {
+  secret: SECRET_KEY,
+  id: "sum-of-sales",
+  brief: "Publish a single-page site that fetches data.csv from attachments, sums its sales column, sets the title to \"Sales Summary 12345\", displays the total inside #total-sales, and loads Bootstrap 5 from jsdelivr.",
+  attachments: [
+    {
+      name: "data.csv",
+      // product,sales\nItemA,10
+      url: "data:text/csv;base64,cHJvZHVjdCxzYWxlcwpJdGVtQSwxMAo=",
+    },
+  ],
+  checks: [
+    { js: "document.title === `Sales Summary 12345`" },
+    { js: "!!document.querySelector(\"link[href*='bootstrap']\")" },
+    { js: "Math.abs(parseFloat(document.querySelector(\"#total-sales\").textContent) - 10) < 0.01" },
+  ],
+};
+
 async function testEndpoint(
   url: string,
   method: string = "GET",
@@ -134,7 +152,8 @@ async function runTests() {
   const overallStartTime = Date.now();
 
   const getTest = await testEndpoint(`${BASE_URL}/`);
-  const postTest = await testEndpoint(`${BASE_URL}/make`, "POST", makePayload);
+  const postTestOld = await testEndpoint(`${BASE_URL}/make`, "POST", makePayload);
+  const postTestNew = await testEndpoint(`${BASE_URL}/make`, "POST", newFormatPayload);
 
   console.log("\n=== Waiting for Processing to Complete ===");
   const logUpdateResult = await waitForLogUpdate(60000);
@@ -151,13 +170,16 @@ async function runTests() {
     `GET /: ${getTest.success ? "PASS" : "FAIL"} (${getTest.duration}ms, status ${getTest.status})`,
   );
   console.log(
-    `POST /make: ${postTest.success ? "PASS" : "FAIL"} (${postTest.duration}ms, status ${postTest.status})`,
+    `POST /make (Old Format): ${postTestOld.success ? "PASS" : "FAIL"} (${postTestOld.duration}ms, status ${postTestOld.status})`,
+  );
+  console.log(
+    `POST /make (New Format): ${postTestNew.success ? "PASS" : "FAIL"} (${postTestNew.duration}ms, status ${postTestNew.status})`,
   );
   console.log(`Log files created: ${logsCheck ? "PASS" : "FAIL"}`);
   console.log(`Plan generation: ${planCheck ? "PASS" : "FAIL"}`);
   console.log(`Processing completion: ${logUpdateResult.success ? "PASS" : "FAIL"} (${logUpdateResult.reason})`);
 
-  const allTestsPassed = getTest.success && postTest.success && logsCheck && planCheck && logUpdateResult.success;
+  const allTestsPassed = getTest.success && postTestOld.success && postTestNew.success && logsCheck && planCheck && logUpdateResult.success;
   console.log(`\nAll Tests: ${allTestsPassed ? "PASS" : "FAIL"}`);
 
   process.exit(allTestsPassed ? 0 : 1);
