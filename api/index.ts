@@ -2,9 +2,10 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { config } from "./config";
 import { gemini, aipipe } from "./geminiClient";
 import { getMvpPrompt, getPlanPrompt, getReadmePrompt } from "./prompts";
-import { makeSchema, RepoResult } from "./schemas";
+import { makeSchema, Attachment, RepoResult } from "./schemas";
 import { githubService } from "./gitHub";
 import { executeOrchestrator } from "./orchestrator";
+import { cleanCodeFence } from "./utils";
 import fetch from "node-fetch";
 import * as fs from "fs";
 
@@ -70,6 +71,23 @@ const withLogging = async <T>(
     });
     throw error;
   }
+};
+
+const downloadAttachments = async (attachments?: Attachment[]): Promise<Attachment[]> => {
+  if (!attachments?.length) return [];
+
+  return Promise.all(
+    attachments.map(async (attachment) => {
+      try {
+        const response = await fetch(attachment.url);
+        const text = await response.text();
+        return { ...attachment, data: text };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Download failed';
+        throw new Error(`Failed to download ${attachment.name}: ${errorMsg}`);
+      }
+    })
+  );
 };
 
 const generateReadme = async (plan: any, mvp: any): Promise<string> => {
@@ -168,43 +186,40 @@ const generateWithClient = async (client: any, prompts: string[], model: string,
 const generatePlan = async (mvp: any) => {
   const planPrompt = getPlanPrompt(JSON.stringify(mvp, null, 1));
 
-  const rawPlan = await retryWithFallback(
-    () => withLogging(
-      "LLM Generate Plan - Primary",
-      () => PRIMARY_CLIENT.generate(planPrompt[1] + "\n\n" + planPrompt[0]),
-      { provider: config.llmProvider }
-    ),
-    () => withLogging(
-      "LLM Generate Plan - Fallback",
-      () => FALLBACK_CLIENT.generate(planPrompt[1] + "\n\n" + planPrompt[0], "openai/gpt-5-mini"),
-      { provider: config.llmProvider === "gemini" ? "aipipe" : "gemini" }
-    )
+  const rawPlanText = await retryWithFallback(
+    async () => {
+      const response = await PRIMARY_CLIENT.generate(planPrompt[1] + "\n\n" + planPrompt[0]);
+      return response.text;
+    },
+    async () => {
+      const response = await FALLBACK_CLIENT.generate(planPrompt[1] + "\n\n" + planPrompt[0], "openai/gpt-5-mini");
+      return response.text;
+    }
   );
 
-  return JSON.parse(rawPlan.replace(/``````/g, "").trim());
+  return JSON.parse(cleanCodeFence(rawPlanText));
 };
 
 const processRequest = async (data: any, log: any) => {
   try {
     await logDetails("Request", data);
 
-    const { nonce, brief, task, id, checks, evaluation_url } = data;
-    const projectName = `${nonce}-${task || id}`;
+    const { nonce, brief, project, checks, evaluation_url, attachments } = data;
+    const projectName = `${nonce}-${project}`;
 
     log.info(`${projectName}: Requesting MVP with ${config.llmProvider}`);
-
+    const processedAttachments = await downloadAttachments(attachments);
+    const mvpInput = { project, brief, checks, attachments: processedAttachments };
     const mvpResponse = await retryWithFallback(
-      () => generateWithClient(PRIMARY_CLIENT, getMvpPrompt(task || id, brief, checks), "gemini-flash-lite-latest"),
-      () => generateWithClient(FALLBACK_CLIENT, getMvpPrompt(task || id, brief, checks), "gemini-flash-lite-latest")
+      () => generateWithClient(PRIMARY_CLIENT, getMvpPrompt(mvpInput), "gemini-flash-lite-latest"),
+      () => generateWithClient(FALLBACK_CLIENT, getMvpPrompt(mvpInput), "gemini-flash-lite-latest")
     );
-
     const mvp = JSON.parse(mvpResponse.text);
     log.info({ message: "MVP parsed successfully", projectName });
     await logDetails(`${projectName}: MVP`, mvp);
 
     log.info(`${projectName}: Requesting Plan`);
     const plan = await generatePlan(mvp);
-
     log.info({ message: "Plan parsed successfully", projectName });
     await logDetails(`${projectName}: Plan`, plan);
 
@@ -262,15 +277,21 @@ fastify.post("/make", { schema: makeSchema }, async (request: FastifyRequest, re
 
   if (!SECRET_KEY) {
     return reply.status(500).send({ error: "Server secret not configured" });
-  }
-
-  if (String(data.secret).trim() !== SECRET_KEY) {
+  } else if (String(data.secret).trim() !== SECRET_KEY) {
     return reply.status(401).send({ error: "Invalid secret key" });
   }
 
   reply.status(200).send({ status: "accepted", timestamp: new Date().toISOString() });
 
-  processRequest(data, fastify.log).catch((error) => {
+  const { email, secret, round, nonce, evaluation_url, ...mvpData } = data;
+  const project = data.task || data.id;
+
+  processRequest({
+    ...mvpData,
+    nonce,
+    evaluation_url,
+    project
+  }, fastify.log).catch((error) => {
     fastify.log.error("Unhandled error in background processing:", error);
   });
 });
@@ -296,16 +317,9 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 const logGitHubDetails = async () => {
   try {
-    const [user, repos] = await Promise.all([
-      withLogging("GitHub Get User Details", () => githubService.getAuthenticatedUser()),
-      withLogging("GitHub Get Repositories", () => githubService.getUserRepositories()),
-    ]);
-
+    const user = await githubService.getAuthenticatedUser();
     fastify.log.info({ msg: "GitHub User Details", user: user.login });
     await logDetails("GitHub User Details", user);
-
-    fastify.log.info({ msg: "GitHub Repositories", count: repos.length });
-    await logDetails("GitHub Repositories", repos.map(r => r.full_name));
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     fastify.log.error({ error: "Failed to fetch GitHub details in background", message: errorMessage });

@@ -1,23 +1,32 @@
 export const getMvpPrompt = (
-  task: string,
-  brief: string,
-  checks: string[],
-) => [`You are an MVP specification assistant. For the given product idea, output an implementable spec that:
+  mvpPrompt
+) => [`You are an MVP specification assistant. Generate an implementable spec that strictly uses provided information and fills only actual gaps.
 
-SCOPE:
-- Include all explicitly requested features
-- Fill unstated details with practical defaults (styling, data, edge cases)
+HIERARCHY (follow in order):
+- Use all details
+- Only infer missing implementation details
+- Never assume features not mentioned
+- Default to simplest viable approach for gaps
 - Choose the simplest implementation that satisfies requirements
 - For the blockers assume them in a easy to implement and make MVP fast
-REQUESTED:
-- Task: ${task}
-- Brief: ${brief}
-- Checks: ${checks}
+
+DETAILS:
+- Project: ${mvpPrompt.project}
+- Brief: ${mvpPrompt.brief}
+- Checks: ${mvpPrompt.checks}
+- Attachments: ${mvpPrompt.attachments}
+
 CONSTRAINTS:
 - Working prototype with core functionality only
 - Basic responsive styling by default
 - Prioritize demonstrable features over complex logic
-- Include placeholders but don't hardcode
+- If Brief specifies features/requirements, include them verbatim
+- If Checks list validations, those are mandatory features
+- For technology/styling choices: use defaults only if unstated
+- For unclear scope: choose minimal working implementation
+- Use placeholders for content, not hardcoded values
+- This will be static page projects deployed on github pages
+
 REQUIRED JSON OUTPUT:
 {
   "definition": {
@@ -33,8 +42,9 @@ REQUIRED JSON OUTPUT:
     }
   ],
   "scope": {
-    "included": ["string - what will work"],
-    "placeholder_content": ["string - what uses dummy data"]
+    "included": ["explicitly stated or required features"],
+    "deferred": ["complex features simplified for MVP"],
+    "placeholder_content": ["dynamic data using mock/sample values"]
   },
   "technology_stack": ["list - of technologies required to build this mvp"],
   "project_structure": ["proper structure"],
@@ -47,7 +57,8 @@ REQUIRED JSON OUTPUT:
   ],
   "success_criteria": ["string - what proves MVP works"],
 }
-Build for rapid demonstration of core value.`,
+
+Build for rapid demonstration of core value.Extract requirements directly from provided input. Fill only implementation gaps with defaults.`,
     "You are an MVP expert who thinks in terms of working prototypes. Always assume the user wants a functional demo with placeholder content rather than a full production system. Your JSON response must be complete and implementable. Never ask for more requirements - make reasonable MVP assumptions. Your response must be a single, valid JSON object. Do not include any markdown formatting (e.g., ```json) or extra text."];
 
 export const getPlanPrompt = (
@@ -212,4 +223,4 @@ export const getReadmePrompt = (mvp: any, plan: any): string => {
     - Donation/sponsor information
     
     Return ONLY the markdown content. No wrapper text, no explanations.`;
-};    
+};

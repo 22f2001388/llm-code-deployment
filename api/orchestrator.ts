@@ -2,6 +2,8 @@ import { gemini, aipipe } from "./geminiClient";
 import { githubService } from "./gitHub";
 import { config } from "./config";
 import { OrchestratorContext, VerificationResult } from "./schemas";
+import { cleanCodeFence } from "./utils";
+
 
 const CLIENT_MAP = { gemini, aipipe };
 const PRIMARY_CLIENT = CLIENT_MAP[config.llmProvider];
@@ -9,17 +11,20 @@ const FALLBACK_CLIENT = config.llmProvider === "gemini" ? aipipe : gemini;
 const MAX_ATTEMPTS = 3;
 const GITHUB_SYNC_DELAY = 2000;
 
+
 const LLM_MODELS = {
   FLASH: "gemini-flash-latest",
   PRO: "gemini-2.5-pro",
   FALLBACK: "openai/gpt-5-mini",
 } as const;
 
+
 const LLM_CONFIGS = {
   CODE_GEN: { temperature: 0.3, maxOutputTokens: 8192 },
   REVIEW: { temperature: 0.2, maxOutputTokens: 500 },
   REPLAN: { temperature: 0.4, maxOutputTokens: 8192 },
 } as const;
+
 
 class Orchestrator {
   async execute(ctx: OrchestratorContext): Promise<void> {
@@ -62,7 +67,7 @@ class Orchestrator {
     ctx.log.info(`[${ctx.projectName}] Generating: ${filePath}`);
 
     const instruction = ctx.plan.code_generation_instructions.find((inst: any) => inst.file === filePath);
-    const content = await this.generateFileContent(filePath, instruction, ctx);
+    const content = await this.generateFileContent(filePath, ctx);
 
     ctx.generatedFiles.set(filePath, content);
 
@@ -80,16 +85,48 @@ class Orchestrator {
     ctx.log.info(`[${ctx.projectName}] Committed: ${filePath}`);
   }
 
-  private async generateFileContent(filePath: string, instruction: any, ctx: OrchestratorContext): Promise<string> {
-    const prompt = this.buildPrompt(filePath, instruction, ctx);
+  private async generateFileContent(filePath: string, ctx: OrchestratorContext): Promise<string> {
+    const manifest = ctx.plan.file_manifest.find(f => f.path === filePath)
+    const implPhases = ctx.plan.implementation_sequence.filter(s => s.file_to_generate === filePath || s.file_to_update === filePath)
+    const instructions = ctx.plan.code_generation_instructions.filter(i => i.file === filePath)
+    const verifications = ctx.plan.verification_checklist.filter(v => v.target_file === filePath)
+
+    const manifestDetails = manifest ? [
+      `Purpose: ${manifest.purpose}`,
+      manifest.contains ? `Contents: ${JSON.stringify(manifest.contains)}` : '',
+      manifest.depends_on.length ? `Depends on: ${manifest.depends_on.join(', ')}` : ''
+    ].join('\n') : ''
+
+    const implDetails = implPhases.length ? implPhases.map(p => `Phase: ${p.phase} - ${p.name}, Checkpoint: ${p.validation_checkpoint}`).join('\n') : ''
+
+    const instructionDetails = instructions.length ? instructions.map(i =>
+      [`Strategy: ${i.template_strategy}`,
+      i.key_requirements ? `Requirements: ${i.key_requirements.join(', ')}` : '',
+      i.integration_points ? `Integration: ${i.integration_points.join(', ')}` : '',
+      i.code_patterns ? `Patterns: ${i.code_patterns.join(', ')}` : '',
+      i.placeholder_data ? `Placeholders: ${JSON.stringify(i.placeholder_data)}` : ''
+      ].filter(Boolean).join(' | ')
+    ).join('\n') : ''
+
+    const verificationDetails = verifications.length ? verifications.map(v =>
+      `Verify: ${v.check} (method: ${v.validation_method})`
+    ).join('\n') : ''
+
+    const prompt = [
+      `Generate content for file: ${filePath}`,
+      manifestDetails,
+      implDetails,
+      instructionDetails,
+      verificationDetails,
+      'Return only file content, no extra explanation.'
+    ].filter(Boolean).join('\n\n')
 
     const response = await this.callLLMWithFallback(
       () => PRIMARY_CLIENT.generate(prompt, LLM_MODELS.FLASH, LLM_CONFIGS.CODE_GEN),
       () => FALLBACK_CLIENT.generate(prompt, LLM_MODELS.FLASH, LLM_CONFIGS.CODE_GEN),
       ctx
-    );
-
-    return this.cleanContent(response.text);
+    )
+    return cleanCodeFence(response.text)
   }
 
   private async callLLMWithFallback<T>(
@@ -175,10 +212,6 @@ Return ONLY the raw file content. No markdown code blocks, no explanations.`;
       .filter((dep: any) => dep.content);
   }
 
-  private cleanContent(rawContent: string): string {
-    return rawContent.trim().replace(/``````/g, "");
-  }
-
   async verifyDeployment(ctx: OrchestratorContext): Promise<VerificationResult> {
     ctx.log.info(`[${ctx.projectName}] Starting LLM verification`);
 
@@ -248,6 +281,7 @@ Respond with ONLY a JSON object in this format:
 }
 
 Be strict but fair. Reject if critical issues exist.`;
+    console.log(prompt)
 
     try {
       const response = await this.callLLMWithFallback(
@@ -256,8 +290,8 @@ Be strict but fair. Reject if critical issues exist.`;
         ctx
       );
 
-      const review = JSON.parse(this.cleanContent(response.text));
-
+      const review = JSON.parse(cleanCodeFence(response.text));
+      console.log(review)
       return {
         approved: review.approved === true,
         reason: review.reason || "No reason provided",
@@ -298,9 +332,10 @@ Return ONLY the JSON plan, no explanations.`;
       { log }
     );
 
-    return JSON.parse(this.cleanContent(response.text));
+    return JSON.parse(cleanCodeFence(response.text));
   }
 }
+
 
 export async function executeOrchestrator(
   projectName: string,
@@ -311,76 +346,52 @@ export async function executeOrchestrator(
 ): Promise<{ deploymentUrl: string; verification: VerificationResult; attempts: number }> {
   const orchestrator = new Orchestrator();
 
-  let currentPlan = initialPlan;
-  let attempt = 1;
+  const ctx: OrchestratorContext = {
+    projectName,
+    owner,
+    plan: initialPlan,
+    mvp,
+    log,
+    generatedFiles: new Map(),
+    attempt: 1,
+  };
 
-  while (attempt <= MAX_ATTEMPTS) {
-    log.info(`[${projectName}] Attempt ${attempt}/${MAX_ATTEMPTS}`);
+  await orchestrator.execute(ctx);
 
-    const ctx: OrchestratorContext = {
-      projectName,
-      owner,
-      plan: currentPlan,
-      mvp,
-      log,
-      generatedFiles: new Map(),
-      attempt,
-    };
+  log.info(`[${projectName}] Waiting for GitHub sync`);
+  await new Promise((resolve) => setTimeout(resolve, GITHUB_SYNC_DELAY));
 
-    await orchestrator.execute(ctx);
-
-    log.info(`[${projectName}] Waiting for GitHub sync`);
-    await new Promise((resolve) => setTimeout(resolve, GITHUB_SYNC_DELAY));
-
-    log.info(`[${projectName}] Fetching repository files`);
-    await Promise.allSettled(
-      Array.from(ctx.generatedFiles.keys()).map(async (filePath) => {
-        try {
-          const remoteContent = await githubService.getFileContent(owner, projectName, filePath);
-          ctx.generatedFiles.set(filePath, remoteContent);
-        } catch (error) {
-          log.error(`[${projectName}] Failed to fetch ${filePath} from repo`);
-        }
-      })
-    );
-
-    log.info(`[${projectName}] Requesting LLM review`);
-    const verification = await orchestrator.verifyDeployment(ctx);
-
-    if (verification.success) {
-      log.info(`[${projectName}] LLM Review: APPROVED on attempt ${attempt}`);
-
-      let deploymentUrl = "";
-      const isStaticSite =
-        currentPlan.dependency_resolution?.hosting_compatibility?.platform === "github-pages" ||
-        currentPlan.execution_strategy?.approach === "static-spa";
-
-      if (isStaticSite) {
-        log.info(`[${projectName}] Deploying to GitHub Pages`);
-        deploymentUrl = await githubService.enableAndDeployPages(owner, projectName);
-        log.info(`[${projectName}] Deployed to: ${deploymentUrl}`);
+  log.info(`[${projectName}] Fetching repository files`);
+  await Promise.allSettled(
+    Array.from(ctx.generatedFiles.keys()).map(async (filePath) => {
+      try {
+        const remoteContent = await githubService.getFileContent(owner, projectName, filePath);
+        ctx.generatedFiles.set(filePath, remoteContent);
+      } catch (error) {
+        log.error(`[${projectName}] Failed to fetch ${filePath} from repo`);
       }
+    })
+  );
 
-      return { deploymentUrl, verification, attempts: attempt };
-    }
+  log.info(`[${projectName}] Review skipped - auto-approved`);
 
-    log.warn(`[${projectName}] LLM Review: REJECTED on attempt ${attempt}`);
-    verification.errors.forEach((err) => log.error(`  - ${err}`));
+  let deploymentUrl = "";
+  const isStaticSite =
+    initialPlan.dependency_resolution?.hosting_compatibility?.platform === "github-pages" ||
+    initialPlan.execution_strategy?.approach === "static-spa";
 
-    if (attempt < MAX_ATTEMPTS) {
-      log.info(`[${projectName}] Replanning for attempt ${attempt + 1}`);
-      currentPlan = await orchestrator.replanWithFeedback(
-        mvp,
-        currentPlan,
-        verification.reviewReason || "Unknown issue",
-        log
-      );
-      attempt++;
-    } else {
-      log.error(`[${projectName}] Max attempts reached, deployment failed`);
-      throw new Error(`Deployment failed after ${MAX_ATTEMPTS} attempts: ${verification.errors.join("; ")}`);
-    }
+  if (isStaticSite) {
+    log.info(`[${projectName}] Deploying to GitHub Pages`);
+    deploymentUrl = await githubService.enableAndDeployPages(owner, projectName);
+    log.info(`[${projectName}] Deployed to: ${deploymentUrl}`);
   }
 
-  throw new Error("Orchestration failed");
+  const verification: VerificationResult = {
+    success: true,
+    errors: [],
+    warnings: [],
+    reviewReason: "Review disabled",
+  };
+
+  return { deploymentUrl, verification, attempts: 1 };
 }

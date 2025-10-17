@@ -298,3 +298,9 @@ export interface VerificationResult {
   warnings: string[];
   reviewReason?: string;
 }
+
+export interface Attachment {
+  name: string;
+  url: string;
+  data?: string;
+}
