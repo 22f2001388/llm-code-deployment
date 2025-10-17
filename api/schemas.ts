@@ -1,28 +1,20 @@
 export const makeSchema = {
   body: {
     type: "object",
-    required: [
-      "email",
-      "secret",
-      "task",
-      "round",
-      "nonce",
-      "brief",
-      "checks",
-      "evaluation_url",
-    ],
     properties: {
+      // Old properties, now optional
       email: { type: "string" },
       secret: { type: "string" },
       task: { type: "string" },
       round: { type: "number" },
       nonce: { type: "string" },
-      brief: { type: "string" },
-      checks: {
-        type: "array",
-        items: { type: "string" },
-      },
       evaluation_url: { type: "string" },
+
+      // New property
+      id: { type: "string" },
+
+      // Common properties
+      brief: { type: "string" },
       attachments: {
         type: "array",
         items: {
@@ -32,6 +24,54 @@ export const makeSchema = {
             url: { type: "string" },
           },
           required: ["name", "url"],
+        },
+      },
+      checks: {
+        type: "array",
+        items: {
+          oneOf: [
+            { type: "string" },
+            {
+              type: "object",
+              properties: {
+                js: { type: "string" },
+              },
+              required: ["js"],
+            },
+          ],
+        },
+      },
+
+      // New round2 property
+      round2: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            brief: { type: "string" },
+            attachments: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  url: { type: "string" },
+                },
+                required: ["name", "url"],
+              },
+            },
+            checks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  js: { type: "string" },
+                },
+                required: ["js"],
+              },
+            },
+          },
+          required: ["brief", "checks"],
         },
       },
     },

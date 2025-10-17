@@ -1,8 +1,9 @@
 import dotenv from "dotenv";
 import fetch from "node-fetch";
 import * as fs from "fs";
+import * as path from "path";
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const SECRET_KEY = process.env.SECRET_KEY;

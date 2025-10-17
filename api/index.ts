@@ -9,15 +9,16 @@ import { getMvpPrompt, getPlanPrompt } from "./prompts";
 import { makeSchema } from "./schemas";
 import fetch from "node-fetch";
 import * as fs from "fs";
+import * as path from "path";
 
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
+  dotenv.config({ path: path.resolve(__dirname, "../.env") });
 }
 
 const SECRET_KEY = process.env.SECRET_KEY?.trim();
-const logDir = "logs";
-const appLog = `${logDir}/api.log`
-const reviewLog = `${logDir}/run_details.log`
+const logDir = path.resolve(__dirname, "../../logs");
+const appLog = path.join(logDir, "api.log");
+const reviewLog = path.join(logDir, "run_details.log");
 
 if (fs.existsSync(logDir)) {
   fs.rmSync(logDir, { recursive: true, force: true });
@@ -433,6 +434,7 @@ async function processRequest(data: any, log: any) {
     await logDetails(`${projectName}: Plan`, plan);
     return;
 
+    /*
     await logDetails(
       "Project Structure",
       jsonPlan.project_structure
@@ -522,6 +524,7 @@ This file is new and does not have any content yet.
         log,
       );
     }
+    */
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
