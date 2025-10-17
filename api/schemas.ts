@@ -279,3 +279,18 @@ export interface DeleteResult {
 }
 
 export type OperationType = 'create' | 'update' | 'delete';
+
+export interface RepoResult {
+  url: string;
+  owner: string;
+  name: string;
+}
+
+export interface OrchestratorContext {
+  projectName: string;
+  owner: string;
+  plan: any;
+  mvp: any;
+  log: any;
+  generatedFiles: Map<string, string>;
+}

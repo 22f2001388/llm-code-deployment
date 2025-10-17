@@ -2,8 +2,9 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify"
 import { config } from "./config";
 import { gemini, aipipe } from "./geminiClient";
 import { getMvpPrompt, getPlanPrompt } from "./prompts";
-import { makeSchema, CreateRepoData } from "./schemas";
+import { makeSchema, CreateRepoData, RepoResult } from "./schemas";
 import { githubService } from "./gitHub";
+import { executeOrchestrator } from "./orchestrator";
 import fetch from "node-fetch";
 import * as fs from "fs";
 
@@ -34,6 +35,31 @@ async function logDetails(title: string, content: any) {
   await fs.promises.appendFile(reviewLog, logEntry);
 }
 
+async function generateReadme(plan: any, mvp: any): Promise<string> {
+  const prompt = `Generate a comprehensive README.md file based on this project plan and MVP:
+
+MVP: ${JSON.stringify(mvp, null, 2)}
+Plan: ${JSON.stringify(plan, null, 2)}
+
+Include:
+- Project title and description
+- Features
+- Tech stack
+- Installation steps
+- Usage examples
+- Project structure
+
+Return only markdown content, no code blocks or wrapping.`;
+
+  const response = await gemini.generate(
+    prompt,
+    "gemini-flash-lite-latest",
+    { temperature: 0.7, maxOutputTokens: 2000 }
+  );
+
+  return response.text.trim();
+}
+
 async function generateRepoDescription(projectName: string): Promise<string> {
   const response = await gemini.generate(
     `Generate a concise, professional GitHub repository description (max 100 characters) for a project named "${projectName}". Return only the description text, nothing else.`,
@@ -43,7 +69,11 @@ async function generateRepoDescription(projectName: string): Promise<string> {
   return response.text.trim();
 }
 
-async function createProjectRepo(projectName: string, mvp?: any): Promise<void> {
+async function createProjectRepo(
+  projectName: string,
+  mvp: any,
+  plan: any
+): Promise<RepoResult> {
   const user = await githubService.getAuthenticatedUser();
 
   const description = mvp?.definition?.core_purpose
@@ -54,12 +84,30 @@ async function createProjectRepo(projectName: string, mvp?: any): Promise<void> 
     name: projectName,
     description,
     private: false,
-    auto_init: true,
+    auto_init: false,
     license_template: "mit"
   };
 
   const repo = await githubService.createRepository(repoData);
-  console.log(`Repository created: ${repo.html_url}`);
+
+  const readme = await generateReadme(plan, mvp);
+
+  await githubService.commitMultipleFiles(
+    user.login,
+    projectName,
+    [{
+      operation: "create",
+      path: "README.md",
+      content: readme
+    }],
+    "Initial commit: Add README"
+  );
+
+  return {
+    url: repo.html_url,
+    owner: user.login,
+    name: projectName
+  };
 }
 
 async function retryWithFallback<T>(
@@ -106,8 +154,6 @@ async function processRequest(data: any, log: any) {
     log.info({ message: "MVP parsed successfully", projectName });
     await logDetails(`${projectName}: MVP`, mvp);
 
-    await createProjectRepo(projectName, mvp);
-
     log.info(`${projectName}: Requesting Plan`);
     const planPrompt = getPlanPrompt(JSON.stringify(mvp, null, 1));
 
@@ -151,7 +197,26 @@ async function processRequest(data: any, log: any) {
     log.info({ message: "Plan parsed successfully", projectName });
     await logDetails(`${projectName}: Plan`, plan);
 
-    await sendCallback(evaluation_url, { success: true, mvp, plan }, log);
+    log.info(`[${projectName}] Creating repository`);
+    const repoResult = await createProjectRepo(projectName, mvp, plan);
+    await executeOrchestrator(
+      projectName,
+      repoResult.owner,
+      plan,
+      mvp,
+      log
+    );
+
+    await sendCallback(evaluation_url, {
+      success: true,
+      mvp,
+      plan,
+      repository: {
+        url: repoResult.url,
+        owner: repoResult.owner,
+        name: repoResult.name,
+      },
+    }, log);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.error({ error: "LLM processing failed", message: errorMessage });
