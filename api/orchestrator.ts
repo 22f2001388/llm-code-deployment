@@ -6,7 +6,7 @@ import { cleanCodeFence } from "./utils";
 
 
 const CLIENT_MAP = { gemini, aipipe };
-const PRIMARY_CLIENT = CLIENT_MAP[config.llmProvider];
+const PRIMARY_CLIENT = CLIENT_MAP[config.llmProvider as keyof typeof CLIENT_MAP];
 const FALLBACK_CLIENT = config.llmProvider === "gemini" ? aipipe : gemini;
 const MAX_ATTEMPTS = 3;
 const GITHUB_SYNC_DELAY = 2000;
@@ -86,10 +86,10 @@ class Orchestrator {
   }
 
   private async generateFileContent(filePath: string, ctx: OrchestratorContext): Promise<string> {
-    const manifest = ctx.plan.file_manifest.find(f => f.path === filePath)
-    const implPhases = ctx.plan.implementation_sequence.filter(s => s.file_to_generate === filePath || s.file_to_update === filePath)
-    const instructions = ctx.plan.code_generation_instructions.filter(i => i.file === filePath)
-    const verifications = ctx.plan.verification_checklist.filter(v => v.target_file === filePath)
+    const manifest = ctx.plan.file_manifest.find((f: any) => f.path === filePath)
+    const implPhases = ctx.plan.implementation_sequence.filter((s: any) => s.file_to_generate === filePath || s.file_to_update === filePath)
+    const instructions = ctx.plan.code_generation_instructions.filter((i: any) => i.file === filePath)
+    const verifications = ctx.plan.verification_checklist.filter((v: any) => v.target_file === filePath)
 
     const manifestDetails = manifest ? [
       `Purpose: ${manifest.purpose}`,
@@ -97,9 +97,9 @@ class Orchestrator {
       manifest.depends_on.length ? `Depends on: ${manifest.depends_on.join(', ')}` : ''
     ].join('\n') : ''
 
-    const implDetails = implPhases.length ? implPhases.map(p => `Phase: ${p.phase} - ${p.name}, Checkpoint: ${p.validation_checkpoint}`).join('\n') : ''
+    const implDetails = implPhases.length ? implPhases.map((p: any) => `Phase: ${p.phase} - ${p.name}, Checkpoint: ${p.validation_checkpoint}`).join('\n') : ''
 
-    const instructionDetails = instructions.length ? instructions.map(i =>
+    const instructionDetails = instructions.length ? instructions.map((i: any) =>
       [`Strategy: ${i.template_strategy}`,
       i.key_requirements ? `Requirements: ${i.key_requirements.join(', ')}` : '',
       i.integration_points ? `Integration: ${i.integration_points.join(', ')}` : '',
@@ -108,7 +108,7 @@ class Orchestrator {
       ].filter(Boolean).join(' | ')
     ).join('\n') : ''
 
-    const verificationDetails = verifications.length ? verifications.map(v =>
+    const verificationDetails = verifications.length ? verifications.map((v: any) =>
       `Verify: ${v.check} (method: ${v.validation_method})`
     ).join('\n') : ''
 
@@ -329,7 +329,7 @@ Return ONLY the JSON plan, no explanations.`;
     const response = await this.callLLMWithFallback(
       () => PRIMARY_CLIENT.generate(replanPrompt, LLM_MODELS.FLASH, LLM_CONFIGS.REPLAN),
       () => FALLBACK_CLIENT.generate(replanPrompt, LLM_MODELS.FLASH, LLM_CONFIGS.REPLAN),
-      { log }
+      { log } as any
     );
 
     return JSON.parse(cleanCodeFence(response.text));

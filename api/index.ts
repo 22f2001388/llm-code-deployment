@@ -15,7 +15,7 @@ const APP_LOG = `${LOG_DIR}/api.log`;
 const REVIEW_LOG = `${LOG_DIR}/run_details.log`;
 
 const CLIENT_MAP = { gemini, aipipe };
-const PRIMARY_CLIENT = CLIENT_MAP[config.llmProvider];
+const PRIMARY_CLIENT = CLIENT_MAP[config.llmProvider as keyof typeof CLIENT_MAP];
 const FALLBACK_CLIENT = config.llmProvider === "gemini" ? aipipe : gemini;
 
 const initLogs = () => {
@@ -214,7 +214,7 @@ const processRequest = async (data: any, log: any) => {
       () => generateWithClient(PRIMARY_CLIENT, getMvpPrompt(mvpInput), "gemini-flash-lite-latest"),
       () => generateWithClient(FALLBACK_CLIENT, getMvpPrompt(mvpInput), "gemini-flash-lite-latest")
     );
-    const mvp = JSON.parse(mvpResponse.text);
+    const mvp = JSON.parse((mvpResponse as any).text);
     log.info({ message: "MVP parsed successfully", projectName });
     await logDetails(`${projectName}: MVP`, mvp);
 

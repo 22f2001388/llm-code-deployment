@@ -297,7 +297,7 @@ export class GitHubService {
     try {
       await this.enablePages(owner, repo, {
         branch,
-        path,
+        path: path as "/" | "/docs",
       });
 
       const maxAttempts = 20;

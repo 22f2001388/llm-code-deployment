@@ -1,5 +1,5 @@
 export const getMvpPrompt = (
-  mvpPrompt
+  mvpPrompt: any
 ) => [`You are an MVP specification assistant. Generate an implementable spec that strictly uses provided information and fills only actual gaps.
 
 HIERARCHY (follow in order):
