@@ -1,21 +1,17 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import dotenv from "dotenv";
+import { config } from "./config";
 import { gemini, aipipe } from "./geminiClient";
 import { getMvpPrompt, getPlanPrompt } from "./prompts";
 import { makeSchema } from "./schemas";
+import { githubService } from "./gitHub";
 import fetch from "node-fetch";
 import * as fs from "fs";
 
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
-}
-
-const SECRET_KEY = process.env.SECRET_KEY?.trim();
+const SECRET_KEY = config.secretKey;
 const logDir = "logs";
 const appLog = `${logDir}/api.log`;
 const reviewLog = `${logDir}/run_details.log`;
-const llmProvider = process.env.LLM_PROVIDER || "gemini";
-const llmClient = llmProvider === "aipipe" ? aipipe : gemini;
+const llmClient = config.llmProvider === "aipipe" ? aipipe : gemini;
 
 if (fs.existsSync(logDir)) {
   fs.rmSync(logDir, { recursive: true, force: true });
@@ -26,7 +22,7 @@ fs.writeFileSync(reviewLog, "");
 
 const fastify: FastifyInstance = Fastify({
   logger: {
-    level: process.env.LOG_LEVEL || "info",
+    level: config.logLevel,
     stream: logStream,
   },
 });
@@ -63,10 +59,10 @@ async function processRequest(data: any, log: any) {
     const name = task || id;
     const projectName = `${nonce}-${name}`;
 
-    const primaryClient = llmProvider === "gemini" ? gemini : aipipe;
-    const fallbackClient = llmProvider === "gemini" ? aipipe : gemini;
+    const primaryClient = config.llmProvider === "gemini" ? gemini : aipipe;
+    const fallbackClient = config.llmProvider === "gemini" ? aipipe : gemini;
 
-    log.info(`${projectName}: Requesting MVP with ${llmProvider}`);
+    log.info(`${projectName}: Requesting MVP with ${config.llmProvider}`);
 
     const mvpPrompts = getMvpPrompt(name, brief, checks);
     const mvpResponse = await retryWithFallback(
@@ -197,10 +193,34 @@ async function gracefulShutdown(signal: string) {
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
+async function logGitHubDetails() {
+  try {
+    const [user, repos] = await Promise.all([
+      githubService.getAuthenticatedUser(),
+      githubService.getUserRepositories(),
+    ]);
+
+    fastify.log.info({ msg: "GitHub User Details", user: user.login });
+    await logDetails("GitHub User Details", user);
+
+    fastify.log.info({ msg: "GitHub Repositories", count: repos.length });
+    await logDetails("GitHub Repositories", repos.map(r => r.full_name));
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+    fastify.log.error({
+      error: "Failed to fetch GitHub details in background",
+      message: errorMessage,
+    });
+  }
+}
+
 const start = async () => {
   try {
     const PORT = Number(process.env.PORT) || 3000;
     await fastify.listen({ port: PORT, host: "0.0.0.0" });
+    logGitHubDetails();
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

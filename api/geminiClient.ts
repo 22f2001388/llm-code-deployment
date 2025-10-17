@@ -1,13 +1,11 @@
 import { GoogleGenAI } from "@google/genai";
+import { config } from "./config";
 import {
   GenerateResponse,
   GenerationConfig,
   ModelName,
   CompressionResult
 } from "./schemas";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 class SmartChat {
   private chat: any;
@@ -273,11 +271,10 @@ class GeminiClient {
   private timeout: number;
 
   private constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    if (!config.geminiApiKey) {
       throw new Error("GEMINI_API_KEY not set");
     }
-    this.ai = new GoogleGenAI({ apiKey });
+    this.ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
     this.timeout = 120000;
   }
 
@@ -366,11 +363,10 @@ class AipipeClient {
   private timeout: number;
 
   private constructor() {
-    const token = process.env.AIPIPE_TOKEN;
-    if (!token) {
+    if (!config.aipipeToken) {
       throw new Error("AIPIPE_TOKEN not set");
     }
-    this.token = token;
+    this.token = config.aipipeToken;
     this.timeout = 120000;
   }
 
