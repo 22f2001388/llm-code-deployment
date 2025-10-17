@@ -1,63 +1,130 @@
-export const getPlanPrompt = (task: string, brief: string, checks: string[]) => `
-You are a senior full-stack developer and project architect. Create a detailed, executable development plan for this project:
+export const getMvpPrompt = (
+  task: string,
+  brief: string,
+  checks: string[],
+) => `You are an MVP specification assistant. For the given product idea, output an implementable spec that:
 
-PROJECT TASK: ${task}
-PROJECT BRIEF: ${brief}
-PROJECT REQUIREMENTS: ${checks.join(', ')}
-
-Generate a comprehensive JSON development plan with this exact structure:
+SCOPE:
+- Include all explicitly requested features
+- Fill unstated details with practical defaults (styling, data, edge cases)
+- Choose the simplest implementation that satisfies requirements
+- For the blockers assume them in a easy to implement and make MVP fast
+REQUESTED:
+- Task: ${task}
+- Brief: ${brief}
+- Checks: ${checks}
+CONSTRAINTS:
+- Working prototype with core functionality only
+- Basic responsive styling by default
+- Prioritize demonstrable features over complex logic
+- Include placeholders and sample data to prove functionality but dont hardcode
+REQUIRED JSON OUTPUT:
 {
-  "project_name": "descriptive_project_name",
-  "technology_stack": {
-    "frontend": ["primary_framework", "supporting_libraries"],
-    "backend": ["server_technology", "apis"],
-    "styling": ["css_framework", "ui_libraries"],
-    "build_tools": ["bundler", "package_manager"],
-    "dependencies": ["key_packages_with_versions"]
+  "definition": {
+    "name": "string",
+    "type": "string (e.g., web app, desktop tool, API)",
+    "core_purpose": "string",
+    "target_demo": "string"
   },
-  "project_structure": [
-    {"path": "directory_path/", "type": "directory", "description": "purpose_of_directory"},
-    {"path": "file_path.extension", "type": "file", "description": "purpose_of_file", "content_hint": "what_should_be_in_this_file"}
-  ],
-  "implementation_steps": [
+  "essential_features": [
     {
-      "id": 1,
-      "step_type": "setup|file_creation|code_implementation|configuration|testing",
-      "description": "specific_action_to_perform",
-      "llm_prompt": "detailed_prompt_to_send_to_llm_for_this_step_including_all_necessary_context",
-      "target_files": ["file_path1", "file_path2"],
-      "dependencies": [step_ids],
-      "validation_criteria": ["how_to_verify_success"],
-      "estimated_time_minutes": number
+      "feature": "string",
+      "description": "string",
     }
   ],
-  "success_criteria": ["measurable_criterion1", "measurable_criterion2"]
+  "scope": {
+    "included": ["string - what will work"],
+    "placeholder_content": ["string - what uses dummy data"]
+  },
+  "technology_stack": ["list - of technologies required to build this mvp"],
+  "project_structure": ["proper structure"],
+  "demo_scenarios": [
+    {
+      "scenario": "string",
+      "user_action": "string",
+      "expected_result": "string"
+    }
+  ],
+  "success_criteria": ["string - what proves MVP works"],
 }
+Build for rapid demonstration of core value.`;
 
-CRITICAL REQUIREMENTS FOR DIRECTORY STRUCTURE:
-- List EVERY directory and file needed for the complete project
-- Include ALL nested directories (src/, src/components/, public/, etc.)
-- Specify type as "directory" for folders and "file" for files
-- For files, include a "content_hint" describing what should be in the file
-- Ensure the structure represents the complete folder hierarchy
-- Include configuration files, asset directories, and all source code paths
+export const getPlanPrompt = (
+  mvp: string) => `You are an autonomous code generation project architect. Generate a complete, self-executing implementation plan from this MVP.
 
-CRITICAL REQUIREMENTS FOR IMPLEMENTATION STEPS:
-- Choose the optimal technology stack with specific versions
-- Each step must include a detailed LLM prompt that can be executed independently
-- Steps should be atomic and self-contained
-- Include file paths, dependencies between steps, and validation criteria
-- NEVER include repository, GitHub, deployment, or infrastructure steps
-- Focus only on project development and implementation
-
-GUIDELINES FOR LLM PROMPTS:
-- Each prompt should contain all context needed to generate the required files/code
-- Include specific requirements, expected functionality, and technical constraints
-- Reference the chosen technology stack and versions
-- Make prompts clear and actionable for code generation
-- Specify exact file content requirements
-
-Return ONLY the raw JSON without any additional text or markdown.
-
-JSON OUTPUT:
-`;
+MVP:
+${mvp}
+YOUR GOAL: Generate ONE complete implementation plan.
+REQUIRED JSON OUTPUT:
+{
+  "execution_strategy": {
+    "approach": "string - single-page-app|multi-file-project|api-service",
+    "entry_point": "string - main file to start execution",
+  },
+  "file_manifest": [
+    {
+      "path": "string",
+      "purpose": "string - what this file does",
+      "depends_on": ["string - files that must exist first"],
+      "contains": {
+        "functions": ["string - function names to implement"],
+        "constants": ["string - constants to define"],
+        "imports": ["string - what to import"],
+        "exports": ["string - what to export"]
+      }
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "phase": "number",
+      "name": "string - phase name",
+      "files_to_generate": ["string - file paths"],
+      "validation_checkpoint": "string - how to verify this phase works",
+    }
+  ],
+  "code_generation_instructions": [
+    {
+      "file": "string",
+      "template_strategy": "from_scratch|adapt_example|combine_patterns",
+      "key_requirements": ["string - must-have features"],
+      "placeholder_data": {
+        "variables": ["string"],
+        "sample_values": ["string"],
+        "mock_responses": ["string"]
+      },
+      "integration_points": ["string - how it connects to other files"]
+    }
+  ],
+  "verification_checklist": [
+    {
+      "target_file": "string or null",
+      "check": "string - can be from original checks or better",
+      "validation_method": "file_exists|content_contains|runs_without_error",
+    }
+  ],
+  "dependency_resolution": {
+    "external_libraries": [
+      {
+        "name": "string",
+        "version": "string or latest",
+        "installation_command": "string",
+        "import_statement": "string"
+      }
+    ],
+  "fallback_strategies": [
+    {
+      "if_fails": "string - what might go wrong",
+      "then_do": "string - alternative approach",
+      "simplified_version": "boolean"
+    }
+  ]
+}
+CRITICAL REQUIREMENTS:
+1. Every file must have sufficient implementation instructions
+2. Include complete placeholder data and sample values
+3. Specify exact function signatures and logic patterns
+4. Provide fallback strategies for complex features
+5. Make all checks automatable without manual inspection
+6. Ensure dependencies are explicit and ordered correctly
+7. The plan must provide clear guidance for building a minimal, maintainable MVP that implements all specified functionality through dynamic, configurable solutions—no hardcoded values.
+IMPORTANT: Omit any key-value pairs from the output that are empty or have no data. Only include keys that contain relevant information.`;

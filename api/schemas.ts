@@ -1,7 +1,16 @@
 export const makeSchema = {
   body: {
     type: "object",
-    required: ["email", "secret", "task", "round", "nonce", "brief", "checks", "evaluation_url"],
+    required: [
+      "email",
+      "secret",
+      "task",
+      "round",
+      "nonce",
+      "brief",
+      "checks",
+      "evaluation_url",
+    ],
     properties: {
       email: { type: "string" },
       secret: { type: "string" },
@@ -11,47 +20,82 @@ export const makeSchema = {
       brief: { type: "string" },
       checks: {
         type: "array",
-        items: { type: "string" }
+        items: { type: "string" },
       },
-      evaluation_url: { type: "string", format: "uri" },
+      evaluation_url: { type: "string" },
       attachments: {
         type: "array",
         items: {
           type: "object",
           properties: {
             name: { type: "string" },
-            url: { type: "string" }
+            url: { type: "string" },
           },
-          required: ["name", "url"]
-        }
-      }
-    }
+          required: ["name", "url"],
+        },
+      },
+    },
   },
   response: {
     202: {
       type: "object",
       properties: {
         message: { type: "string" },
-        timestamp: { type: "string" }
-      }
+        timestamp: { type: "string" },
+      },
     },
     400: {
       type: "object",
       properties: {
-        error: { type: "string" }
-      }
+        error: { type: "string" },
+      },
     },
     401: {
       type: "object",
       properties: {
-        error: { type: "string" }
-      }
+        error: { type: "string" },
+      },
     },
     500: {
       type: "object",
       properties: {
-        error: { type: "string" }
-      }
-    }
-  }
+        error: { type: "string" },
+      },
+    },
+  },
 };
+
+export type ModelName =
+  | "gemini-2.5-pro"
+  | "gemini-flash-latest"
+  | "gemini-flash-lite-latest";
+
+export interface GenerationConfig {
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  maxOutputTokens?: number;
+  systemInstruction?: string;
+  thinkingBudget?: number;
+  includeThoughts?: boolean;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface GenerateResponse {
+  text: string;
+  usage?: TokenUsage;
+}
+
+export interface CompressionResult {
+  success: boolean;
+  compressedHistory: any[];
+  originalLength: number;
+  compressedLength: number;
+  summary?: string;
+  error?: string;
+}
