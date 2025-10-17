@@ -29,7 +29,7 @@ function waitForLogUpdate(timeout: number = 60000): Promise<{ success: boolean, 
         if (stats.size > lastSize) {
           lastSize = stats.size;
           const content = fs.readFileSync(runDetailsPath, "utf-8");
-          if (content.includes("--- Plan @")) {
+          if (content.includes("Plan @")) {
             clearInterval(checkInterval);
             clearTimeout(timeoutId);
             resolve({ success: true, reason: "Plan logged successfully" });
@@ -117,7 +117,7 @@ async function checkPlanGeneration() {
   await new Promise(resolve => setTimeout(resolve, 1000));
 
   const logContent = fs.readFileSync(runDetailsPath, "utf-8");
-  const hasMVP = logContent.includes("MVP @") || logContent.includes("MVP");
+  const hasMVP = logContent.includes("MVP @");
   const hasPlan = logContent.includes("Plan @");
 
   console.log(`MVP logged: ${hasMVP}`);
