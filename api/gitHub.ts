@@ -83,8 +83,6 @@ class HttpClient {
   }
 }
 
-// Original content from github-service.ts, with imports removed
-
 export class GitHubService {
   private baseURL = 'https://api.github.com';
   private cachedUser: GitHubUser | null = null;
@@ -288,6 +286,48 @@ export class GitHubService {
       `${this.baseURL}/repos/${owner}/${repo}/pages/builds`,
       'POST'
     );
+  }
+
+  async enableAndDeployPages(
+    owner: string,
+    repo: string,
+    branch: string = "main",
+    path: string = "/"
+  ): Promise<string> {
+    try {
+      await this.enablePages(owner, repo, {
+        branch,
+        path,
+      });
+
+      const maxAttempts = 20;
+      const delayMs = 3000;
+
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+        try {
+          const pagesInfo = await this.getPagesInfo(owner, repo);
+
+          if (pagesInfo.status === "built" && pagesInfo.html_url) {
+            return pagesInfo.html_url;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+
+      const pagesInfo = await this.getPagesInfo(owner, repo);
+      const username = owner.toLowerCase();
+      const repoName = repo.toLowerCase();
+      return pagesInfo.html_url || `https://${username}.github.io/${repoName}/`;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("409")) {
+        const pagesInfo = await this.getPagesInfo(owner, repo);
+        return pagesInfo.html_url;
+      }
+      throw error;
+    }
   }
 }
 

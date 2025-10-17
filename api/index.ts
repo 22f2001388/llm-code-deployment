@@ -199,7 +199,9 @@ async function processRequest(data: any, log: any) {
 
     log.info(`[${projectName}] Creating repository`);
     const repoResult = await createProjectRepo(projectName, mvp, plan);
-    await executeOrchestrator(
+
+    log.info(`[${projectName}] Executing orchestrator`);
+    const deploymentUrl = await executeOrchestrator(
       projectName,
       repoResult.owner,
       plan,
@@ -207,7 +209,7 @@ async function processRequest(data: any, log: any) {
       log
     );
 
-    await sendCallback(evaluation_url, {
+    const callbackPayload: any = {
       success: true,
       mvp,
       plan,
@@ -216,7 +218,16 @@ async function processRequest(data: any, log: any) {
         owner: repoResult.owner,
         name: repoResult.name,
       },
-    }, log);
+    };
+
+    if (deploymentUrl) {
+      callbackPayload.deployment = {
+        url: deploymentUrl,
+        platform: "github-pages",
+      };
+    }
+
+    await sendCallback(evaluation_url, callbackPayload, log);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     log.error({ error: "LLM processing failed", message: errorMessage });

@@ -69,7 +69,11 @@ class Orchestrator {
     await githubService.commitMultipleFiles(
       ctx.owner,
       ctx.projectName,
-      [operation],
+      [{
+        path: filePath,
+        content,
+        operation: task.file_to_update ? "update" : "create",
+      }],
       `${task.name}: ${filePath}`
     );
 
@@ -185,9 +189,7 @@ class Orchestrator {
       );
     }
 
-    sections.push(
-      `\n--- Output Instructions ---`
-    );
+    sections.push(`\n--- Output Instructions ---`);
     sections.push(
       `Return ONLY the raw file content. No markdown code blocks, no explanations.`
     );
@@ -225,7 +227,7 @@ export async function executeOrchestrator(
   plan: any,
   mvp: any,
   log: any
-): Promise<void> {
+): Promise<string> {
   const orchestrator = new Orchestrator();
 
   const ctx: OrchestratorContext = {
@@ -238,4 +240,21 @@ export async function executeOrchestrator(
   };
 
   await orchestrator.execute(ctx);
+
+  const isStaticSite =
+    plan.dependency_resolution?.hosting_compatibility?.platform ===
+    "github-pages" ||
+    plan.execution_strategy?.approach === "static-spa";
+
+  if (isStaticSite) {
+    log.info(`[${projectName}] Deploying to GitHub Pages`);
+    const deploymentUrl = await githubService.enableAndDeployPages(
+      owner,
+      projectName
+    );
+    log.info(`[${projectName}] Deployed to: ${deploymentUrl}`);
+    return deploymentUrl;
+  }
+
+  return "";
 }
